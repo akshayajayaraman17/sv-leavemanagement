@@ -12,9 +12,11 @@ export default function Profile({ employee, onToast }) {
   })
   const [saving, setSaving] = useState(false)
 
-  const [pw, setPw]       = useState({ newPw: '', confirm: '' })
+  // Change password state
+  const [pw, setPw]         = useState({ current: '', newPw: '', confirm: '' })
   const [pwErrs, setPwErrs] = useState({})
   const [changingPw, setChangingPw] = useState(false)
+  const [pwStep, setPwStep] = useState('form') // 'form' | 'success'
 
   const saveProfile = async () => {
     setSaving(true)
@@ -29,16 +31,35 @@ export default function Profile({ employee, onToast }) {
 
   const changePassword = async () => {
     const e = {}
-    if (!pw.newPw)              e.newPw  = 'Required'
-    else if (pw.newPw.length < 8) e.newPw  = 'Min 8 characters'
-    if (pw.newPw !== pw.confirm)  e.confirm = 'Passwords do not match'
-    if (Object.keys(e).length)  { setPwErrs(e); return }
+    if (!pw.current)                  e.current = 'Required'
+    if (!pw.newPw)                    e.newPw   = 'Required'
+    else if (pw.newPw.length < 8)     e.newPw   = 'Min 8 characters'
+    if (pw.newPw !== pw.confirm)      e.confirm  = 'Passwords do not match'
+    if (pw.current && pw.current === pw.newPw) e.newPw = 'New password must differ from current'
+    if (Object.keys(e).length) { setPwErrs(e); return }
+
     setChangingPw(true)
+
+    // Step 1: verify current password
+    const { error: signInErr } = await supabase.auth.signInWithPassword({
+      email:    employee.email,
+      password: pw.current,
+    })
+    if (signInErr) {
+      setChangingPw(false)
+      setPwErrs({ current: 'Incorrect current password' })
+      return
+    }
+
+    // Step 2: set new password
     const { error } = await supabase.auth.updateUser({ password: pw.newPw })
     setChangingPw(false)
     if (error) { onToast(error.message, 'error'); return }
-    setPw({ newPw: '', confirm: '' })
+
+    setPw({ current: '', newPw: '', confirm: '' })
     setPwErrs({})
+    setPwStep('success')
+    setTimeout(() => setPwStep('form'), 4000)
     onToast('Password changed successfully')
   }
 
@@ -64,10 +85,10 @@ export default function Profile({ employee, onToast }) {
       <div style={{ ...card, marginBottom: 20 }}>
         <SecTitle>Account Info</SecTitle>
         {[
-          ['Email',         employee.email],
-          ['Role',          ROLE_LABEL[employee.role]],
+          ['Email',           employee.email],
+          ['Role',            ROLE_LABEL[employee.role]],
           ['Date of Joining', formatDate(employee.joining_date)],
-          ['Employee Code', employee.employee_code],
+          ['Employee Code',   employee.employee_code],
         ].map(([label, value]) => (
           <div key={label} style={{
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -111,31 +132,50 @@ export default function Profile({ employee, onToast }) {
       {/* ── Change password ── */}
       <div style={{ ...card }}>
         <SecTitle>Change Password</SecTitle>
-        <Field label="New Password" error={pwErrs.newPw}>
-          <input
-            type="password"
-            value={pw.newPw}
-            onChange={e => setPw(p => ({ ...p, newPw: e.target.value }))}
-            placeholder="Min 8 characters"
-            style={inputStyle(pwErrs.newPw)}
-          />
-        </Field>
-        <Field label="Confirm Password" error={pwErrs.confirm}>
-          <input
-            type="password"
-            value={pw.confirm}
-            onChange={e => setPw(p => ({ ...p, confirm: e.target.value }))}
-            placeholder="Repeat new password"
-            style={inputStyle(pwErrs.confirm)}
-          />
-        </Field>
-        <button
-          onClick={changePassword}
-          disabled={changingPw}
-          style={{ ...btnStyle(C.blue, '#fff'), width: '100%', opacity: changingPw ? 0.7 : 1 }}
-        >
-          {changingPw ? 'Updating…' : 'Change Password'}
-        </button>
+
+        {pwStep === 'success' ? (
+          <div style={{ textAlign: 'center', padding: '24px 0' }}>
+            <div style={{ fontSize: 36, marginBottom: 10 }}>✓</div>
+            <div style={{ fontSize: 15, fontWeight: 500, color: C.green }}>Password changed successfully</div>
+          </div>
+        ) : (
+          <>
+            <Field label="Current Password" error={pwErrs.current}>
+              <input
+                type="password"
+                value={pw.current}
+                onChange={e => setPw(p => ({ ...p, current: e.target.value }))}
+                placeholder="Your current password"
+                style={inputStyle(pwErrs.current)}
+              />
+            </Field>
+            <Field label="New Password" error={pwErrs.newPw}>
+              <input
+                type="password"
+                value={pw.newPw}
+                onChange={e => setPw(p => ({ ...p, newPw: e.target.value }))}
+                placeholder="Min 8 characters"
+                style={inputStyle(pwErrs.newPw)}
+              />
+            </Field>
+            <Field label="Confirm New Password" error={pwErrs.confirm}>
+              <input
+                type="password"
+                value={pw.confirm}
+                onChange={e => setPw(p => ({ ...p, confirm: e.target.value }))}
+                placeholder="Repeat new password"
+                style={inputStyle(pwErrs.confirm)}
+              />
+            </Field>
+            <button
+              onClick={changePassword}
+              disabled={changingPw}
+              style={{ ...btnStyle(C.blue, '#fff'), width: '100%', opacity: changingPw ? 0.7 : 1 }}
+            >
+              {changingPw ? 'Verifying…' : 'Change Password'}
+            </button>
+          </>
+        )}
       </div>
     </div>
   )
