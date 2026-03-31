@@ -250,6 +250,13 @@ export default function Timesheet({ employee, onToast }) {
         >›</button>
       </div>
 
+      {/* ── Hours rule banner ── */}
+      <div style={{ ...card, background: C.blueBg, border: `0.5px solid ${C.blue}`, marginBottom: 16 }}>
+        <div style={{ fontSize: 12, color: C.blue, lineHeight: 1.6 }}>
+          <strong>Hours rule:</strong> Log ≥ 8h for a full day · 4h for a half day · &lt; 4h will be treated as leave
+        </div>
+      </div>
+
       {/* ── Summary bar ── */}
       <div style={{ ...card, background: C.bgSec, marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
@@ -299,8 +306,15 @@ export default function Timesheet({ employee, onToast }) {
                 </div>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 500 }}>{DAY_LABELS[i]}</div>
-                  <div style={{ fontSize: 11, color: dayHours >= 8 ? C.green : dayHours > 0 ? C.amber : C.textTert }}>
-                    {dayHours > 0 ? `${dayHours}h logged` : isPast ? 'Nothing logged' : 'No entries yet'}
+                  <div style={{ fontSize: 11, color:
+                    dayHours >= 8 ? C.green :
+                    dayHours >= 4 ? C.amber :
+                    dayHours > 0  ? C.red   : C.textTert
+                  }}>
+                    {dayHours >= 8  ? `${dayHours}h ✓ Full day`          :
+                     dayHours >= 4  ? `${dayHours}h — Half day`          :
+                     dayHours > 0   ? `${dayHours}h ✗ Leave may apply`   :
+                     isPast         ? 'No hours — leave will apply'       : 'No entries yet'}
                   </div>
                 </div>
               </div>
@@ -356,8 +370,9 @@ export default function Timesheet({ employee, onToast }) {
                     </div>
                   </div>
                 ))}
-                <div style={{ paddingTop: 6, textAlign: 'right', fontSize: 12, fontWeight: 600, color: dayHours >= 8 ? C.green : C.amber }}>
-                  {dayHours}h
+                <div style={{ paddingTop: 6, textAlign: 'right', fontSize: 12, fontWeight: 600,
+                  color: dayHours >= 8 ? C.green : dayHours >= 4 ? C.amber : C.red }}>
+                  {dayHours}h {dayHours >= 8 ? '✓' : dayHours >= 4 ? '(half day)' : '(leave)'}
                 </div>
               </div>
             )}

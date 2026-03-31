@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import {
   fetchEmployees, createEmployee, updateEmployee, deactivateEmployee,
-  fetchSalary, upsertSalary, fetchApprovers, setApprovers
+  fetchSalary, upsertSalary, fetchApprovers, setApprovers,
+  fetchLeaveTypes, fetchLeaveAdjustments, upsertLeaveAdjustment,
 } from '../lib/api'
 import { Avatar, Badge, C, Confirm, Empty, Field, SecTitle, Spinner, btnStyle, card, inputStyle, formatDate } from './UI'
 
@@ -24,19 +25,32 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast }) {
     manager_id:   initial?.manager_id   || '',
     password:     '',
   })
-  const [salary, setSalary]       = useState(null)
-  const [approvers, setApproversState] = useState([])
+  const [salary, setSalary]             = useState(null)
+  const [approvers, setApproversState]  = useState([])
   const [selectedApprovers, setSelAppr] = useState([])
-  const [errs, setErrs]           = useState({})
-  const [saving, setSaving]       = useState(false)
-  const [activeTab, setActiveTab] = useState('details')
+  const [leaveTypes, setLeaveTypes]     = useState([])
+  const [leaveAdj, setLeaveAdj]         = useState({})   // { type_code: adjustment_value }
+  const [leaveReasons, setLeaveReasons] = useState({})   // { type_code: reason }
+  const [errs, setErrs]                 = useState({})
+  const [saving, setSaving]             = useState(false)
+  const [activeTab, setActiveTab]       = useState('details')
 
   useEffect(() => {
     if (isEdit) {
       fetchSalary(initial.id).then(({ data }) => setSalary(data || {}))
       fetchApprovers(initial.id).then(({ data }) => setSelAppr((data || []).map(a => a.approver_id)))
+      fetchLeaveAdjustments(initial.id).then(({ data }) => {
+        const adj = {}, reasons = {}
+        for (const row of (data || [])) {
+          adj[row.type_code]     = row.adjustment
+          reasons[row.type_code] = row.reason || ''
+        }
+        setLeaveAdj(adj)
+        setLeaveReasons(reasons)
+      })
     }
     setApproversState(employees.filter(e => e.id !== initial?.id))
+    fetchLeaveTypes().then(({ data }) => setLeaveTypes(data || []))
   }, [initial?.id])
 
   const [salForm, setSalForm] = useState({
@@ -92,6 +106,18 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast }) {
     if (empId) {
       await upsertSalary({ ...salForm, employee_id: empId })
       await setApprovers(empId, selectedApprovers)
+      // Save leave adjustments
+      for (const lt of leaveTypes.filter(t => !t.is_comp_off)) {
+        const adj = parseFloat(leaveAdj[lt.code]) || 0
+        if (adj !== 0 || leaveReasons[lt.code]) {
+          await upsertLeaveAdjustment({
+            employee_id: empId,
+            type_code:   lt.code,
+            adjustment:  adj,
+            reason:      leaveReasons[lt.code] || null,
+          })
+        }
+      }
     }
 
     setSaving(false)
@@ -112,10 +138,11 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast }) {
       <button onClick={onBack} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '6px 14px', fontSize: 12, marginBottom: 16 }}>‹ Back</button>
       <div style={{ fontSize: 17, fontWeight: 500, marginBottom: 16 }}>{isEdit ? `Edit ${initial.full_name}` : 'Add New Employee'}</div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
-        <TB id="details"  label="Details" />
-        <TB id="salary"   label="Salary" />
+      <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
+        <TB id="details"   label="Details" />
+        <TB id="salary"    label="Salary" />
         <TB id="approvers" label="Approvers" />
+        {isEdit && <TB id="leave" label="Leave" />}
       </div>
 
       {/* Details tab */}
@@ -209,11 +236,56 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast }) {
         </div>
       )}
 
+      {/* Leave adjustments tab */}
+      {activeTab === 'leave' && (
+        <div>
+          <div style={{ ...card, background: C.amberBg, border: `0.5px solid #E8C97A`, marginBottom: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: '#854F0B', marginBottom: 4 }}>Admin leave override</div>
+            <div style={{ fontSize: 12, color: '#854F0B', lineHeight: 1.6 }}>
+              Adjust an employee's leave entitlement. Positive numbers add days, negative numbers deduct. Changes apply immediately to their balance.
+            </div>
+          </div>
+          {leaveTypes.filter(lt => !lt.is_comp_off).map(lt => (
+            <div key={lt.code} style={{ ...card, marginBottom: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <div style={{ width: 10, height: 10, borderRadius: '50%', background: lt.color, flexShrink: 0 }} />
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{lt.label}</div>
+                <div style={{ fontSize: 11, color: C.textTert, marginLeft: 'auto' }}>Base: {lt.annual_days} days/yr</div>
+              </div>
+              <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <Field label="Adjustment (days)">
+                  <input
+                    type="number" step="0.5"
+                    value={leaveAdj[lt.code] ?? ''}
+                    onChange={e => setLeaveAdj(a => ({ ...a, [lt.code]: e.target.value }))}
+                    placeholder="e.g. +3 or -2"
+                    style={inputStyle()}
+                  />
+                </Field>
+                <Field label="Reason">
+                  <input
+                    value={leaveReasons[lt.code] || ''}
+                    onChange={e => setLeaveReasons(r => ({ ...r, [lt.code]: e.target.value }))}
+                    placeholder="Optional note"
+                    style={inputStyle()}
+                  />
+                </Field>
+              </div>
+              {leaveAdj[lt.code] && (
+                <div style={{ fontSize: 11, color: C.textSec, marginTop: 4 }}>
+                  New total: {lt.annual_days + (parseFloat(leaveAdj[lt.code]) || 0)} days
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Approvers tab */}
       {activeTab === 'approvers' && (
         <div>
           <div style={{ fontSize: 13, color: C.textSec, marginBottom: 14, lineHeight: 1.6 }}>
-            Select who approves leave and comp off requests for this employee. If none selected, the reporting manager is used.
+            Select up to 3 approvers for this employee's leave and comp off requests. Requests go to approver #1 first, then #2, then #3. If none selected, the reporting manager is used.
           </div>
           {approvers.length === 0 ? <Empty text="No other employees found" /> : (
             <div style={{ ...card, padding: 0, overflow: 'hidden' }}>

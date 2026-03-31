@@ -371,3 +371,42 @@ export const markEntriesJiraSynced = async (ids) => {
     .in('id', ids)
   return { error }
 }
+
+// ─── Profile ──────────────────────────────────────────────────────────────────
+export const updateProfile = async (id, updates) => {
+  const { data, error } = await supabase
+    .from('employees')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single()
+  return { data, error }
+}
+
+// ─── Leave types ──────────────────────────────────────────────────────────────
+export const fetchLeaveTypes = async () => {
+  const { data, error } = await supabase
+    .from('leave_types')
+    .select('*')
+    .eq('is_active', true)
+    .order('annual_days', { ascending: false })
+  return { data, error }
+}
+
+// ─── Leave adjustments (admin) ────────────────────────────────────────────────
+export const fetchLeaveAdjustments = async (employeeId) => {
+  const { data, error } = await supabase
+    .from('leave_adjustments')
+    .select('*')
+    .eq('employee_id', employeeId)
+  return { data, error }
+}
+
+export const upsertLeaveAdjustment = async (payload) => {
+  const { data, error } = await supabase
+    .from('leave_adjustments')
+    .upsert(payload, { onConflict: 'employee_id,type_code' })
+    .select()
+    .single()
+  return { data, error }
+}
