@@ -1,29 +1,44 @@
 import { useEffect, useState } from 'react'
 import {
   fetchPendingForApprover, fetchPendingCompForApprover,
-  decideLeave, decideCompOff
+  decideLeave, decideCompOff,
+  fetchPendingTimesheets, decideTimesheet, fetchTimesheetEntries,
 } from '../lib/api'
-import { Avatar, Badge, C, Empty, Spinner, btnStyle, card, formatDate } from './UI'
+import { Avatar, Badge, C, Empty, Spinner, btnStyle, card, formatDate, inputStyle } from './UI'
 
 export default function Approvals({ employee, onToast }) {
-  const [tab,      setTab]    = useState('comp')
-  const [leaves,   setLeaves] = useState([])
-  const [comps,    setComps]  = useState([])
-  const [loading,  setLoading]= useState(true)
-  const [deciding, setDeciding] = useState(null)
+  const [tab,        setTab]      = useState('comp')
+  const [leaves,     setLeaves]   = useState([])
+  const [comps,      setComps]    = useState([])
+  const [timesheets, setTimesheets] = useState([])
+  const [loading,    setLoading]  = useState(true)
+  const [deciding,   setDeciding] = useState(null)
+  const [expandedTs, setExpandedTs] = useState(null)
+  const [tsEntries,  setTsEntries] = useState({})
+  const [rejectId,   setRejectId] = useState(null)
+  const [rejectReason, setRejectReason] = useState('')
 
   const load = () => {
     setLoading(true)
     Promise.all([
       fetchPendingForApprover(employee.id),
       fetchPendingCompForApprover(employee.id),
-    ]).then(([l, c]) => {
+      fetchPendingTimesheets(employee.id),
+    ]).then(([l, c, ts]) => {
       setLeaves(l.data || [])
       setComps(c.data || [])
+      setTimesheets(ts.data || [])
     }).finally(() => setLoading(false))
   }
 
   useEffect(load, [employee.id])
+
+  const loadTsEntries = async (tsId) => {
+    if (tsEntries[tsId]) { setExpandedTs(expandedTs === tsId ? null : tsId); return }
+    const { data } = await fetchTimesheetEntries(tsId)
+    setTsEntries(p => ({ ...p, [tsId]: data || [] }))
+    setExpandedTs(tsId)
+  }
 
   const handleLeave = async (id, status) => {
     setDeciding(id)
@@ -41,6 +56,19 @@ export default function Approvals({ employee, onToast }) {
     if (error) { onToast(error.message, 'error'); return }
     onToast(`Comp off ${status}`)
     setComps(p => p.filter(c => c.id !== id))
+  }
+
+  const handleTimesheet = async (id, status) => {
+    if (status === 'rejected' && !rejectReason.trim()) { setRejectId(id); return }
+    setDeciding(id)
+    const reason = status === 'rejected' ? rejectReason : null
+    const { error } = await decideTimesheet(id, status, reason)
+    setDeciding(null)
+    setRejectId(null)
+    setRejectReason('')
+    if (error) { onToast(error.message, 'error'); return }
+    onToast(`Timesheet ${status}`)
+    setTimesheets(p => p.filter(t => t.id !== id))
   }
 
   if (loading) return <Spinner />
@@ -62,11 +90,14 @@ export default function Approvals({ employee, onToast }) {
     </button>
   )
 
+  const DAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+
   return (
     <div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
-        <TB id="comp"   label="Comp Off"       count={comps.length} />
-        <TB id="leaves" label="Leave Requests"  count={leaves.length} />
+      <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
+        <TB id="comp"       label="Comp Off"      count={comps.length} />
+        <TB id="leaves"     label="Leave Requests" count={leaves.length} />
+        <TB id="timesheets" label="Timesheets"     count={timesheets.length} />
       </div>
 
       {tab === 'comp' && (
@@ -127,6 +158,118 @@ export default function Approvals({ employee, onToast }) {
             </div>
           </div>
         ))
+      )}
+
+      {tab === 'timesheets' && (
+        timesheets.length === 0 ? <Empty text="No timesheets pending approval ✓" /> :
+        timesheets.map(ts => {
+          const entries = tsEntries[ts.id] || []
+          const isExpanded = expandedTs === ts.id
+          const hoursPerDay = {}
+          for (const e of entries) hoursPerDay[e.date] = (hoursPerDay[e.date] || 0) + e.hours
+
+          return (
+            <div key={ts.id} style={{ ...card, marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <Avatar initials={ts.employee?.avatar_initials} size={34} color={C.green} bg={C.greenBg} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 500 }}>{ts.employee?.full_name}</div>
+                  <div style={{ fontSize: 11, color: C.textTert }}>{ts.employee?.department} · {ts.employee?.designation}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: ts.total_hours >= 40 ? C.green : C.amber }}>{ts.total_hours}h</div>
+                  <div style={{ fontSize: 10, color: C.textTert }}>this week</div>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+                <div style={{ background: C.bgSec, borderRadius: 8, padding: '7px 10px' }}>
+                  <div style={{ fontSize: 10, color: C.textTert }}>Week of</div>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>{formatDate(ts.week_start)}</div>
+                </div>
+                <div style={{ background: C.bgSec, borderRadius: 8, padding: '7px 10px' }}>
+                  <div style={{ fontSize: 10, color: C.textTert }}>Submitted</div>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>{formatDate(ts.submitted_at)}</div>
+                </div>
+              </div>
+
+              {/* Expand to see entries */}
+              <button
+                onClick={() => loadTsEntries(ts.id)}
+                style={{ ...btnStyle(C.bgSec, C.textSec), fontSize: 12, padding: '5px 12px', marginBottom: 10, width: '100%' }}
+              >
+                {isExpanded ? '▲ Hide entries' : `▼ View entries`}
+              </button>
+
+              {isExpanded && entries.length > 0 && (
+                <div style={{ marginBottom: 10 }}>
+                  {Object.entries(
+                    entries.reduce((days, e) => {
+                      if (!days[e.date]) days[e.date] = []
+                      days[e.date].push(e)
+                      return days
+                    }, {})
+                  ).map(([date, dayEntries]) => (
+                    <div key={date} style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: C.textSec, marginBottom: 4 }}>
+                        {new Date(date + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
+                        <span style={{ marginLeft: 8, color: C.textTert, fontWeight: 400 }}>{hoursPerDay[date]}h</span>
+                      </div>
+                      {dayEntries.map(entry => (
+                        <div key={entry.id} style={{ background: C.bgSec, borderRadius: 8, padding: '6px 10px', marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            {entry.jira_issue_key && (
+                              <span style={{ background: C.blueBg, color: C.blue, fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 5, marginRight: 6 }}>
+                                {entry.jira_issue_key}
+                              </span>
+                            )}
+                            <span style={{ fontSize: 12 }}>{entry.task_description}</span>
+                          </div>
+                          <span style={{ fontSize: 12, fontWeight: 600, flexShrink: 0, marginLeft: 8 }}>{entry.hours}h</span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Reject reason input */}
+              {rejectId === ts.id && (
+                <div style={{ marginBottom: 10 }}>
+                  <input
+                    autoFocus
+                    value={rejectReason}
+                    onChange={e => setRejectReason(e.target.value)}
+                    placeholder="Reason for rejection…"
+                    style={{ ...inputStyle(true), marginBottom: 8 }}
+                  />
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => handleTimesheet(ts.id, 'approved')}
+                  disabled={deciding === ts.id}
+                  style={{ ...btnStyle(C.green, '#fff'), flex: 1 }}
+                >Approve</button>
+                <button
+                  onClick={() => {
+                    if (rejectId === ts.id && rejectReason.trim()) {
+                      handleTimesheet(ts.id, 'rejected')
+                    } else {
+                      setRejectId(ts.id)
+                      setRejectReason('')
+                    }
+                  }}
+                  disabled={deciding === ts.id}
+                  style={{ ...btnStyle(C.bgSec, C.red, `0.5px solid #F09595`), flex: 1 }}
+                >
+                  {rejectId === ts.id ? 'Confirm Reject' : 'Reject'}
+                </button>
+              </div>
+            </div>
+          )
+        })
       )}
     </div>
   )

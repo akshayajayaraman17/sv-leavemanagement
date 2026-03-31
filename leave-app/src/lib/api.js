@@ -227,3 +227,147 @@ export const getApproverForEmployee = async (employeeId) => {
     .rpc('get_approver', { emp_id: employeeId })
   return { data, error }
 }
+
+// ─── Attendance ───────────────────────────────────────────────────────────────
+export const fetchTodayAttendance = async (employeeId) => {
+  const today = new Date().toISOString().split('T')[0]
+  const { data, error } = await supabase
+    .from('attendance')
+    .select('*')
+    .eq('employee_id', employeeId)
+    .eq('date', today)
+    .maybeSingle()
+  return { data, error }
+}
+
+export const fetchAttendanceHistory = async (employeeId, limit = 20) => {
+  const { data, error } = await supabase
+    .from('attendance')
+    .select('*')
+    .eq('employee_id', employeeId)
+    .order('date', { ascending: false })
+    .limit(limit)
+  return { data, error }
+}
+
+export const fetchAllAttendance = async (limit = 100) => {
+  const { data, error } = await supabase
+    .from('attendance')
+    .select('*, employee:employee_id(full_name, avatar_initials, department)')
+    .order('date', { ascending: false })
+    .limit(limit)
+  return { data, error }
+}
+
+export const checkIn = async (payload) => {
+  const { data, error } = await supabase
+    .from('attendance')
+    .upsert(payload, { onConflict: 'employee_id,date' })
+    .select()
+    .single()
+  return { data, error }
+}
+
+export const checkOut = async (id, payload) => {
+  const { data, error } = await supabase
+    .from('attendance')
+    .update(payload)
+    .eq('id', id)
+    .select()
+    .single()
+  return { data, error }
+}
+
+// ─── Timesheets ───────────────────────────────────────────────────────────────
+export const fetchOrCreateTimesheet = async (employeeId, weekStart) => {
+  const { data: existing } = await supabase
+    .from('timesheets')
+    .select('*')
+    .eq('employee_id', employeeId)
+    .eq('week_start', weekStart)
+    .maybeSingle()
+  if (existing) return { data: existing, error: null }
+
+  const { data: approverId } = await supabase.rpc('get_approver', { emp_id: employeeId })
+  const { data, error } = await supabase
+    .from('timesheets')
+    .insert({ employee_id: employeeId, week_start: weekStart, approver_id: approverId || null })
+    .select()
+    .single()
+  return { data, error }
+}
+
+export const fetchTimesheetEntries = async (timesheetId) => {
+  const { data, error } = await supabase
+    .from('timesheet_entries')
+    .select('*')
+    .eq('timesheet_id', timesheetId)
+    .order('date')
+    .order('created_at')
+  return { data, error }
+}
+
+export const addTimesheetEntry = async (payload) => {
+  const { data, error } = await supabase
+    .from('timesheet_entries')
+    .insert(payload)
+    .select()
+    .single()
+  return { data, error }
+}
+
+export const deleteTimesheetEntry = async (id) => {
+  const { error } = await supabase
+    .from('timesheet_entries')
+    .delete()
+    .eq('id', id)
+  return { error }
+}
+
+export const submitTimesheet = async (id, totalHours) => {
+  const { data, error } = await supabase
+    .from('timesheets')
+    .update({ status: 'submitted', submitted_at: new Date().toISOString(), total_hours: totalHours })
+    .eq('id', id)
+    .select()
+    .single()
+  return { data, error }
+}
+
+export const fetchPendingTimesheets = async (approverId) => {
+  const { data, error } = await supabase
+    .from('timesheets')
+    .select('*, employee:employee_id(full_name, avatar_initials, department, designation)')
+    .eq('approver_id', approverId)
+    .eq('status', 'submitted')
+    .order('week_start', { ascending: false })
+  return { data, error }
+}
+
+export const decideTimesheet = async (id, status, rejectReason = null) => {
+  const { data, error } = await supabase
+    .from('timesheets')
+    .update({ status, approved_at: new Date().toISOString(), reject_reason: rejectReason })
+    .eq('id', id)
+    .select()
+    .single()
+  return { data, error }
+}
+
+export const fetchTimesheetHistory = async (employeeId) => {
+  const { data, error } = await supabase
+    .from('timesheets')
+    .select('*')
+    .eq('employee_id', employeeId)
+    .order('week_start', { ascending: false })
+    .limit(12)
+  return { data, error }
+}
+
+export const markEntriesJiraSynced = async (ids) => {
+  const { error } = await supabase
+    .from('timesheet_entries')
+    .update({ jira_synced: true })
+    .in('id', ids)
+  return { error }
+}

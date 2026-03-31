@@ -7,36 +7,48 @@ import MyLeaves from './components/MyLeaves'
 import Approvals from './components/Approvals'
 import AdminPanel from './components/AdminPanel'
 import JiraSettings from './components/JiraSettings'
+import Attendance from './components/Attendance'
+import Timesheet from './components/Timesheet'
 import { Toast, C, Spinner, Avatar } from './components/UI'
 import { signOut } from './lib/api'
 
 const NAV = {
   employee: [
-    { id: 'dash',    label: 'Home',     icon: '◉' },
-    { id: 'apply',   label: 'Apply',    icon: '+' },
-    { id: 'comp',    label: 'Comp Off', icon: '◈' },
-    { id: 'history', label: 'History',  icon: '≡' },
-    { id: 'jira',    label: 'Jira',     icon: '🔗' },
+    { id: 'dash',       label: 'Home',       icon: '◉' },
+    { id: 'attendance', label: 'Attendance',  icon: '⏱' },
+    { id: 'timesheet',  label: 'Timesheet',   icon: '📋' },
+    { id: 'apply',      label: 'Apply',       icon: '+' },
+    { id: 'comp',       label: 'Comp Off',    icon: '◈' },
+    { id: 'history',    label: 'History',     icon: '≡' },
+    { id: 'jira',       label: 'Jira',        icon: '🔗' },
   ],
   manager: [
-    { id: 'dash',      label: 'Home',      icon: '◉' },
-    { id: 'apply',     label: 'Apply',     icon: '+' },
-    { id: 'comp',      label: 'Comp Off',  icon: '◈' },
-    { id: 'history',   label: 'History',   icon: '≡' },
-    { id: 'approvals', label: 'Approvals', icon: '✓' },
-    { id: 'jira',      label: 'Jira',     icon: '🔗' },
+    { id: 'dash',       label: 'Home',       icon: '◉' },
+    { id: 'attendance', label: 'Attendance',  icon: '⏱' },
+    { id: 'timesheet',  label: 'Timesheet',   icon: '📋' },
+    { id: 'apply',      label: 'Apply',       icon: '+' },
+    { id: 'comp',       label: 'Comp Off',    icon: '◈' },
+    { id: 'history',    label: 'History',     icon: '≡' },
+    { id: 'approvals',  label: 'Approvals',   icon: '✓' },
+    { id: 'jira',       label: 'Jira',        icon: '🔗' },
   ],
   admin: [
-    { id: 'dash',      label: 'Home',      icon: '◉' },
-    { id: 'apply',     label: 'Apply',     icon: '+' },
-    { id: 'comp',      label: 'Comp Off',  icon: '◈' },
-    { id: 'history',   label: 'History',   icon: '≡' },
-    { id: 'approvals', label: 'Approvals', icon: '✓' },
-    { id: 'admin',     label: 'Admin',     icon: '⚙' },
-    { id: 'jira',      label: 'Jira',     icon: '🔗' },
+    { id: 'dash',       label: 'Home',       icon: '◉' },
+    { id: 'attendance', label: 'Attendance',  icon: '⏱' },
+    { id: 'timesheet',  label: 'Timesheet',   icon: '📋' },
+    { id: 'apply',      label: 'Apply',       icon: '+' },
+    { id: 'comp',       label: 'Comp Off',    icon: '◈' },
+    { id: 'history',    label: 'History',     icon: '≡' },
+    { id: 'approvals',  label: 'Approvals',   icon: '✓' },
+    { id: 'admin',      label: 'Admin',       icon: '⚙' },
+    { id: 'jira',       label: 'Jira',        icon: '🔗' },
   ],
 }
-const TITLES = { dash: 'Dashboard', apply: 'Apply Leave', comp: 'Request Comp Off', history: 'My Leaves', approvals: 'Approvals', admin: 'Admin Panel', jira: 'Jira' }
+const TITLES = {
+  dash: 'Dashboard', attendance: 'Attendance', timesheet: 'Timesheet',
+  apply: 'Apply Leave', comp: 'Request Comp Off', history: 'My Leaves',
+  approvals: 'Approvals', admin: 'Admin Panel', jira: 'Jira',
+}
 
 export default function App() {
   const { employee, loading } = useAuth()
@@ -121,13 +133,15 @@ export default function App() {
         {/* Page content */}
         <div className="app-content">
           <div className="content-max">
-            {tab === 'dash'      && <Dashboard   employee={employee} />}
-            {tab === 'apply'     && <ApplyLeave  employee={employee} onToast={showToast} />}
-            {tab === 'comp'      && <ApplyCompOff employee={employee} onToast={showToast} />}
-            {tab === 'history'   && <MyLeaves    employee={employee} />}
-            {tab === 'approvals' && <Approvals   employee={employee} onToast={showToast} />}
-            {tab === 'admin'     && <AdminPanel  onToast={showToast} />}
-            {tab === 'jira'      && <JiraSettings employee={employee} onToast={showToast} />}
+            {tab === 'dash'       && <Dashboard    employee={employee} />}
+            {tab === 'attendance' && <Attendance   employee={employee} />}
+            {tab === 'timesheet'  && <Timesheet    employee={employee} onToast={showToast} />}
+            {tab === 'apply'      && <ApplyLeave   employee={employee} onToast={showToast} />}
+            {tab === 'comp'       && <ApplyCompOff employee={employee} onToast={showToast} />}
+            {tab === 'history'    && <MyLeaves     employee={employee} />}
+            {tab === 'approvals'  && <Approvals    employee={employee} onToast={showToast} />}
+            {tab === 'admin'      && <AdminPanel   onToast={showToast} />}
+            {tab === 'jira'       && <JiraSettings employee={employee} onToast={showToast} />}
           </div>
         </div>
 

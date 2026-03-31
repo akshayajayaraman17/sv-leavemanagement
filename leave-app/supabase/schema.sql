@@ -291,3 +291,105 @@ create policy "comp_insert" on public.comp_off_requests for insert with check (
 create policy "comp_update" on public.comp_off_requests for update using (
   approver_id = auth.uid() or public.is_admin()
 );
+
+-- ============================================================
+-- TIMESHEET MANAGEMENT — run below in Supabase SQL Editor
+-- ============================================================
+
+-- ── Attendance (daily check-in / check-out) ──────────────────────────────────
+create table public.attendance (
+  id                uuid primary key default uuid_generate_v4(),
+  employee_id       uuid not null references public.employees(id) on delete cascade,
+  date              date not null,
+  check_in_time     timestamptz,
+  check_in_lat      double precision,
+  check_in_lng      double precision,
+  check_in_address  text,
+  check_out_time    timestamptz,
+  check_out_lat     double precision,
+  check_out_lng     double precision,
+  check_out_address text,
+  total_hours       double precision,
+  created_at        timestamptz not null default now(),
+  unique(employee_id, date)
+);
+
+-- ── Timesheets (one per employee per week) ───────────────────────────────────
+create table public.timesheets (
+  id            uuid primary key default uuid_generate_v4(),
+  employee_id   uuid not null references public.employees(id) on delete cascade,
+  week_start    date not null,           -- always a Monday
+  status        text not null default 'draft'
+                  check (status in ('draft','submitted','approved','rejected')),
+  approver_id   uuid references public.employees(id),
+  submitted_at  timestamptz,
+  approved_at   timestamptz,
+  reject_reason text,
+  total_hours   double precision not null default 0,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  unique(employee_id, week_start)
+);
+
+-- ── Timesheet entries (one row per task per day) ─────────────────────────────
+create table public.timesheet_entries (
+  id                  uuid primary key default uuid_generate_v4(),
+  timesheet_id        uuid not null references public.timesheets(id) on delete cascade,
+  employee_id         uuid not null references public.employees(id) on delete cascade,
+  date                date not null,
+  jira_issue_key      text,
+  project             text,
+  task_description    text not null,
+  hours               double precision not null check (hours > 0 and hours <= 24),
+  jira_synced         boolean not null default false,
+  created_at          timestamptz not null default now()
+);
+
+-- ── Auto-updated_at trigger for timesheets ───────────────────────────────────
+create trigger trg_timesheets_updated_at before update on public.timesheets
+  for each row execute function public.handle_updated_at();
+
+-- ── RLS ──────────────────────────────────────────────────────────────────────
+alter table public.attendance        enable row level security;
+alter table public.timesheets        enable row level security;
+alter table public.timesheet_entries enable row level security;
+
+-- Attendance: own records + managers/admins see all
+create policy "attendance_select" on public.attendance for select using (
+  employee_id = auth.uid() or public.is_manager()
+);
+create policy "attendance_insert" on public.attendance for insert with check (
+  employee_id = auth.uid()
+);
+create policy "attendance_update" on public.attendance for update using (
+  employee_id = auth.uid()
+);
+
+-- Timesheets: own + assigned approver + admin
+create policy "timesheets_select" on public.timesheets for select using (
+  employee_id = auth.uid()
+  or approver_id = auth.uid()
+  or public.is_admin()
+);
+create policy "timesheets_insert" on public.timesheets for insert with check (
+  employee_id = auth.uid()
+);
+create policy "timesheets_update" on public.timesheets for update using (
+  employee_id = auth.uid()
+  or approver_id = auth.uid()
+  or public.is_admin()
+);
+
+-- Timesheet entries: own + managers/admins
+create policy "ts_entries_select" on public.timesheet_entries for select using (
+  employee_id = auth.uid() or public.is_manager()
+);
+create policy "ts_entries_insert" on public.timesheet_entries for insert with check (
+  employee_id = auth.uid()
+);
+create policy "ts_entries_update" on public.timesheet_entries for update using (
+  employee_id = auth.uid()
+);
+create policy "ts_entries_delete" on public.timesheet_entries for delete using (
+  employee_id = auth.uid()
+);
