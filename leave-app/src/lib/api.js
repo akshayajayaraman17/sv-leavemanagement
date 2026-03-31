@@ -410,3 +410,17 @@ export const upsertLeaveAdjustment = async (payload) => {
     .single()
   return { data, error }
 }
+
+// ─── Medical certificate upload ───────────────────────────────────────────────
+export const uploadMedicalCertificate = async (employeeId, file) => {
+  const ext  = file.name.split('.').pop()
+  const path = `${employeeId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+  const { error } = await supabase.storage
+    .from('medical-certificates')
+    .upload(path, file, { upsert: false })
+  if (error) return { url: null, error }
+  const { data: { publicUrl } } = supabase.storage
+    .from('medical-certificates')
+    .getPublicUrl(path)
+  return { url: publicUrl, error: null }
+}

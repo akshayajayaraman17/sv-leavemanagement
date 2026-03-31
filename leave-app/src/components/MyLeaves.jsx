@@ -48,6 +48,12 @@ export default function MyLeaves({ employee }) {
               {formatDate(l.from_date)} – {formatDate(l.to_date)} · {l.days} day{l.days > 1 ? 's' : ''}
             </div>
             <div style={{ fontSize: 12, color: C.textTert }}>{l.reason}</div>
+            {l.medical_certificate_url && (
+              <a href={l.medical_certificate_url} target="_blank" rel="noreferrer"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.blue, marginTop: 6 }}>
+                📎 View medical certificate
+              </a>
+            )}
             {l.reject_reason && (
               <div style={{ fontSize: 11, color: C.red, marginTop: 6, background: C.redBg, padding: '5px 8px', borderRadius: 6 }}>
                 Rejection reason: {l.reject_reason}

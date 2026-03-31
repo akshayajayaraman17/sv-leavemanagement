@@ -151,7 +151,13 @@ export default function Approvals({ employee, onToast }) {
                 <div style={{ fontSize: 13, fontWeight: 500 }}>{l.days} day{l.days > 1 ? 's' : ''}</div>
               </div>
             </div>
-            <div style={{ fontSize: 12, color: C.textSec, borderTop: `0.5px solid ${C.border}`, padding: '8px 0 10px' }}>{l.reason}</div>
+            <div style={{ fontSize: 12, color: C.textSec, borderTop: `0.5px solid ${C.border}`, padding: '8px 0 6px' }}>{l.reason}</div>
+            {l.medical_certificate_url && (
+              <a href={l.medical_certificate_url} target="_blank" rel="noreferrer"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.blue, marginBottom: 10 }}>
+                📎 View medical certificate
+              </a>
+            )}
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => handleLeave(l.id, 'approved')} disabled={deciding === l.id} style={{ ...btnStyle(C.green, '#fff'), flex: 1 }}>Approve</button>
               <button onClick={() => handleLeave(l.id, 'rejected')} disabled={deciding === l.id} style={{ ...btnStyle(C.bgSec, C.red, `0.5px solid #F09595`), flex: 1 }}>Reject</button>

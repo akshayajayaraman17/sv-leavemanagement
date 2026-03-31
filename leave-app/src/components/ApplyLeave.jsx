@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { fetchLeaveBalance, fetchEmployees, applyLeave, applyCompOff, getApproverForEmployee } from '../lib/api'
+import { fetchLeaveBalance, fetchEmployees, applyLeave, applyCompOff, getApproverForEmployee, uploadMedicalCertificate } from '../lib/api'
 import { Avatar, Badge, C, Field, SecTitle, Spinner, btnStyle, card, inputStyle, formatDate } from './UI'
 
 function workingDays(from, to) {
@@ -15,6 +15,7 @@ export function ApplyLeave({ employee, onToast }) {
   const [employees, setEmployees] = useState([])
   const [approver,  setApprover]  = useState(null)
   const [form,      setForm]      = useState({ type: 'annual', from: '', to: '', reason: '', half: false })
+  const [certificate, setCertificate] = useState(null)
   const [errs,      setErrs]      = useState({})
   const [loading,   setLoading]   = useState(true)
   const [submitting,setSubmitting]= useState(false)
@@ -39,6 +40,8 @@ export function ApplyLeave({ employee, onToast }) {
     return form.half ? 0.5 : workingDays(form.from, form.to)
   }, [form.from, form.to, form.half])
 
+  const isSick = form.type === 'sick'
+
   const validate = () => {
     const e = {}
     if (!form.from)  e.from = 'Required'
@@ -46,20 +49,30 @@ export function ApplyLeave({ employee, onToast }) {
     if (form.from && form.to && new Date(form.to) < new Date(form.from)) e.to = 'Must be after start'
     if (!form.reason.trim()) e.reason = 'Required'
     if (bal && days > bal.remaining) e.to = `Only ${bal.remaining}d available`
+    if (isSick && !certificate) e.certificate = 'Medical certificate is required for sick leave'
     return e
   }
 
   const submit = async () => {
     const e = validate(); if (Object.keys(e).length) { setErrs(e); return }
     setSubmitting(true)
+
+    let certUrl = null
+    if (isSick && certificate) {
+      const { url, error: uploadErr } = await uploadMedicalCertificate(employee.id, certificate)
+      if (uploadErr) { onToast('Failed to upload certificate: ' + uploadErr.message, 'error'); setSubmitting(false); return }
+      certUrl = url
+    }
+
     const { error } = await applyLeave({
-      employee_id: employee.id,
-      leave_type:  form.type,
-      from_date:   form.from,
-      to_date:     form.to,
+      employee_id:              employee.id,
+      leave_type:               form.type,
+      from_date:                form.from,
+      to_date:                  form.to,
       days,
-      reason:      form.reason,
-      approver_id: approver?.id || null,
+      reason:                   form.reason,
+      approver_id:              approver?.id || null,
+      medical_certificate_url:  certUrl,
     })
     setSubmitting(false)
     if (error) { onToast(error.message, 'error'); return }
@@ -111,6 +124,51 @@ export function ApplyLeave({ employee, onToast }) {
       <Field label="Reason" error={errs.reason}>
         <textarea rows={3} value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} placeholder="Brief reason for leave…" style={{ ...inputStyle(errs.reason), resize: 'vertical' }} />
       </Field>
+
+      {isSick && (
+        <Field label="Medical Certificate" error={errs.certificate}>
+          <div style={{
+            border: `1.5px dashed ${errs.certificate ? '#E24B4A' : certificate ? C.green : C.borderMed}`,
+            borderRadius: 8, padding: '14px 12px', background: certificate ? C.greenBg : C.bg,
+            cursor: 'pointer', textAlign: 'center',
+          }}
+            onClick={() => document.getElementById('cert-upload').click()}
+          >
+            {certificate ? (
+              <div style={{ fontSize: 13, color: C.green, fontWeight: 500 }}>
+                ✓ {certificate.name}
+                <button
+                  onClick={e => { e.stopPropagation(); setCertificate(null) }}
+                  style={{ marginLeft: 10, background: 'none', border: 'none', color: C.red, cursor: 'pointer', fontSize: 14 }}
+                >×</button>
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize: 22, marginBottom: 6 }}>📎</div>
+                <div style={{ fontSize: 13, color: C.textSec, fontWeight: 500 }}>Click to upload certificate</div>
+                <div style={{ fontSize: 11, color: C.textTert, marginTop: 3 }}>PDF, JPG or PNG · Max 5MB</div>
+              </>
+            )}
+          </div>
+          <input
+            id="cert-upload"
+            type="file"
+            accept="image/*,application/pdf"
+            style={{ display: 'none' }}
+            onChange={e => {
+              const f = e.target.files?.[0]
+              if (!f) return
+              if (f.size > 5 * 1024 * 1024) { onToast('File must be under 5MB', 'error'); return }
+              setCertificate(f)
+              setErrs(p => ({ ...p, certificate: undefined }))
+            }}
+          />
+          <div style={{ fontSize: 11, color: C.red, marginTop: 4 }}>
+            * Medical certificate is mandatory for sick leave
+          </div>
+        </Field>
+      )}
+
       <button onClick={submit} disabled={submitting} style={{ ...btnStyle(C.green, '#fff'), width: '100%', opacity: submitting ? 0.7 : 1 }}>
         {submitting ? 'Submitting…' : 'Submit Request'}
       </button>
