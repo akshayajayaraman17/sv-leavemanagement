@@ -56,6 +56,16 @@ create table public.approver_config (
   unique(employee_id, approver_id)
 );
 
+-- Jira account links for per-user worklog posting
+create table public.jira_accounts (
+  employee_id   uuid primary key references public.employees(id) on delete cascade,
+  jira_host     text not null,
+  jira_email    text not null,
+  jira_api_token text not null,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+
 -- Leave types (seeded below)
 create table public.leave_types (
   id          uuid primary key default uuid_generate_v4(),
@@ -192,6 +202,8 @@ create trigger trg_employees_updated_at before update on public.employees
   for each row execute function public.handle_updated_at();
 create trigger trg_salary_updated_at before update on public.salary_details
   for each row execute function public.handle_updated_at();
+create trigger trg_jira_accounts_updated_at before update on public.jira_accounts
+  for each row execute function public.handle_updated_at();
 
 -- ────────────────────────────────────────────────────────────
 -- ROW LEVEL SECURITY (RLS)
@@ -202,6 +214,25 @@ alter table public.approver_config   enable row level security;
 alter table public.leave_requests    enable row level security;
 alter table public.comp_off_requests enable row level security;
 alter table public.leave_types       enable row level security;
+alter table public.jira_accounts     enable row level security;
+
+create policy "jira_accounts_select_own_or_admin" on public.jira_accounts for select using (
+  auth.uid() = employee_id or public.is_admin()
+);
+
+create policy "jira_accounts_insert_own" on public.jira_accounts for insert with check (
+  auth.uid() = employee_id
+);
+
+create policy "jira_accounts_update_own" on public.jira_accounts for update using (
+  auth.uid() = employee_id
+) with check (
+  auth.uid() = employee_id
+);
+
+create policy "jira_accounts_delete_own" on public.jira_accounts for delete using (
+  auth.uid() = employee_id
+);
 
 -- Helper: is the current user an admin?
 create or replace function public.is_admin()

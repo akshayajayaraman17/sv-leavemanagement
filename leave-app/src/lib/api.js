@@ -55,6 +55,40 @@ export const deactivateEmployee = async (id) => {
   return { data, error }
 }
 
+// ─── Jira integration ─────────────────────────────────────────────────────────
+export const fetchJiraAccount = async (employeeId) => {
+  const { data, error } = await supabase
+    .from('jira_accounts')
+    .select('*')
+    .eq('employee_id', employeeId)
+    .maybeSingle()
+  return { data, error }
+}
+
+export const upsertJiraAccount = async (payload) => {
+  const { data, error } = await supabase
+    .from('jira_accounts')
+    .upsert(payload, { onConflict: 'employee_id' })
+    .select()
+    .single()
+  return { data, error }
+}
+
+export const deleteJiraAccount = async (employeeId) => {
+  const { data, error } = await supabase
+    .from('jira_accounts')
+    .delete()
+    .eq('employee_id', employeeId)
+  return { data, error }
+}
+
+export const postJiraWorklog = async (payload) => {
+  const { data, error } = await supabase.functions.invoke('post-jira-worklog', {
+    body: payload,
+  })
+  return { data, error }
+}
+
 // ─── Salary ──────────────────────────────────────────────────────────────────
 export const fetchSalary = async (employeeId) => {
   const { data, error } = await supabase

@@ -39,7 +39,7 @@ export default function Dashboard({ employee }) {
       </div>
 
       <SecTitle>Leave Balance — {new Date().getFullYear()}</SecTitle>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 22 }}>
+      <div className="balance-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 22 }}>
         {balances.map(b => {
           const pct = b.total > 0 ? Math.round((b.used / b.total) * 100) : 0
           return (
