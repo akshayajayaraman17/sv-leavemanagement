@@ -10,6 +10,7 @@ import JiraSettings from './components/JiraSettings'
 import Attendance from './components/Attendance'
 import Timesheet from './components/Timesheet'
 import Profile from './components/Profile'
+import Team from './components/Team'
 import { Toast, C, Spinner, Avatar } from './components/UI'
 import { signOut } from './lib/api'
 
@@ -32,6 +33,7 @@ const NAV = {
     { id: 'comp',       label: 'Comp Off',    icon: '◈' },
     { id: 'history',    label: 'History',     icon: '≡' },
     { id: 'approvals',  label: 'Approvals',   icon: '✓' },
+    { id: 'team',       label: 'Team',        icon: '👥' },
     { id: 'jira',       label: 'Jira',        icon: '🔗' },
     { id: 'profile',    label: 'Profile',     icon: '👤' },
   ],
@@ -43,6 +45,7 @@ const NAV = {
     { id: 'comp',       label: 'Comp Off',    icon: '◈' },
     { id: 'history',    label: 'History',     icon: '≡' },
     { id: 'approvals',  label: 'Approvals',   icon: '✓' },
+    { id: 'team',       label: 'Team',        icon: '👥' },
     { id: 'admin',      label: 'Admin',       icon: '⚙' },
     { id: 'jira',       label: 'Jira',        icon: '🔗' },
     { id: 'profile',    label: 'Profile',     icon: '👤' },
@@ -51,7 +54,7 @@ const NAV = {
 const TITLES = {
   dash: 'Dashboard', attendance: 'Attendance', timesheet: 'Timesheet',
   apply: 'Apply Leave', comp: 'Request Comp Off', history: 'My Leaves',
-  approvals: 'Approvals', admin: 'Admin Panel', jira: 'Jira', profile: 'My Profile',
+  approvals: 'Approvals', team: 'Team', admin: 'Admin Panel', jira: 'Jira', profile: 'My Profile',
 }
 
 export default function App() {
@@ -145,6 +148,7 @@ export default function App() {
             {tab === 'history'    && <MyLeaves     employee={employee} />}
             {tab === 'approvals'  && <Approvals    employee={employee} onToast={showToast} />}
             {tab === 'admin'      && <AdminPanel   onToast={showToast} />}
+            {tab === 'team'       && <Team          viewer={employee} onToast={showToast} />}
             {tab === 'jira'       && <JiraSettings employee={employee} onToast={showToast} />}
             {tab === 'profile'    && <Profile      employee={employee} onToast={showToast} />}
           </div>
