@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { fetchLeaveBalance, fetchEmployees, applyLeave, applyCompOff, getApproverForEmployee, uploadMedicalCertificate } from '../lib/api'
+import { fetchLeaveBalance, fetchEmployees, applyLeave, applyCompOff, getApproverForEmployee, uploadMedicalCertificate, fetchMyCompRequests } from '../lib/api'
+import { supabase } from '../lib/supabase'
 import { Avatar, Badge, C, Field, SecTitle, Spinner, btnStyle, card, inputStyle, formatDate } from './UI'
 
 function workingDays(from, to) {
@@ -178,29 +179,109 @@ export function ApplyLeave({ employee, onToast }) {
 
 // ── Apply Comp Off ─────────────────────────────────────────────────────────────
 export function ApplyCompOff({ employee, onToast }) {
-  const [employees, setEmployees] = useState([])
-  const [approver,  setApprover]  = useState(null)
-  const [form,      setForm]      = useState({ workedDate: '', workedHours: '8', reason: '' })
-  const [errs,      setErrs]      = useState({})
-  const [loading,   setLoading]   = useState(true)
-  const [submitting,setSubmitting]= useState(false)
-  const [done,      setDone]      = useState(false)
+  const [employees,  setEmployees]  = useState([])
+  const [approver,   setApprover]   = useState(null)
+  const [existingReqs, setExisting] = useState([])
+  const [form,       setForm]       = useState({ workedDate: '', reason: '' })
+  const [attendance, setAttendance] = useState(null)   // attendance record for selected date
+  const [attLoading, setAttLoading] = useState(false)
+  const [attError,   setAttError]   = useState('')
+  const [errs,       setErrs]       = useState({})
+  const [loading,    setLoading]    = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [done,       setDone]       = useState(false)
 
   useEffect(() => {
-    Promise.all([fetchEmployees(), getApproverForEmployee(employee.id)]).then(([e, a]) => {
+    Promise.all([
+      fetchEmployees(),
+      getApproverForEmployee(employee.id),
+      fetchMyCompRequests(employee.id),
+    ]).then(([e, a, cr]) => {
       setEmployees(e.data || [])
+      setExisting(cr.data || [])
       const apprId = a.data
       if (apprId) setApprover((e.data || []).find(x => x.id === apprId) || null)
     }).finally(() => setLoading(false))
   }, [employee.id])
 
-  const hrs = parseFloat(form.workedHours) || 0
-  const earnedDays = hrs >= 6 ? 1 : hrs >= 3 ? 0.5 : 0
+  // Auto-validate attendance when date changes
+  useEffect(() => {
+    if (!form.workedDate) { setAttendance(null); setAttError(''); return }
+    const validateDate = async () => {
+      setAttLoading(true)
+      setAttError('')
+      setAttendance(null)
+
+      // Check if date is in the past
+      if (form.workedDate >= today) {
+        setAttError('Comp-off can only be requested for past dates')
+        setAttLoading(false)
+        return
+      }
+
+      // Check if date is a weekend (Sat/Sun)
+      const d = new Date(form.workedDate + 'T12:00:00')
+      const dayOfWeek = d.getDay()
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        setAttError('Comp-off is only for work done on weekends or holidays')
+        setAttLoading(false)
+        return
+      }
+
+      // Check for duplicate request
+      const isDuplicate = existingReqs.some(r =>
+        r.worked_date === form.workedDate && r.status !== 'rejected'
+      )
+      if (isDuplicate) {
+        setAttError('A comp-off request already exists for this date')
+        setAttLoading(false)
+        return
+      }
+
+      // Fetch attendance for that date
+      const { data: att } = await supabase
+        .from('attendance')
+        .select('*')
+        .eq('employee_id', employee.id)
+        .eq('date', form.workedDate)
+        .maybeSingle()
+
+      if (!att || !att.check_in_time) {
+        setAttError('No check-in record found for this date. You must have valid attendance.')
+        setAttLoading(false)
+        return
+      }
+
+      if (!att.check_out_time) {
+        setAttError('No check-out record found. Both check-in and check-out are required.')
+        setAttLoading(false)
+        return
+      }
+
+      if (att.status === 'absent' || att.status === 'incomplete') {
+        setAttError('Attendance is marked as ' + att.status + '. Cannot apply comp-off.')
+        setAttLoading(false)
+        return
+      }
+
+      if ((att.total_hours || 0) < 8) {
+        setAttError(`Only ${att.total_hours?.toFixed(1) || 0}h logged. Minimum 8 hours required for comp-off.`)
+        setAttLoading(false)
+        return
+      }
+
+      setAttendance(att)
+      setAttLoading(false)
+    }
+    validateDate()
+  }, [form.workedDate])
+
+  const earnedDays = attendance ? (attendance.total_hours >= 8 ? 1 : 0) : 0
 
   const validate = () => {
     const e = {}
     if (!form.workedDate) e.workedDate = 'Required'
-    if (!form.workedHours || isNaN(form.workedHours) || hrs < 1 || hrs > 12) e.workedHours = '1–12 hrs'
+    if (!attendance) e.workedDate = attError || 'Invalid date'
     if (!form.reason.trim()) e.reason = 'Required'
     return e
   }
@@ -211,13 +292,17 @@ export function ApplyCompOff({ employee, onToast }) {
     const { error } = await applyCompOff({
       employee_id:  employee.id,
       worked_date:  form.workedDate,
-      worked_hours: hrs,
+      worked_hours: attendance.total_hours,
       earned_days:  earnedDays,
       reason:       form.reason,
       approver_id:  approver?.id || null,
     })
     setSubmitting(false)
-    if (error) { onToast(error.message, 'error'); return }
+    if (error) {
+      const msg = error.message || (typeof error === 'string' ? error : 'Failed to submit')
+      onToast(msg, 'error')
+      return
+    }
     setDone(true)
   }
 
@@ -227,15 +312,19 @@ export function ApplyCompOff({ employee, onToast }) {
       <div style={{ fontSize: 44, color: C.purple, marginBottom: 14 }}>✓</div>
       <div style={{ fontSize: 18, fontWeight: 500, marginBottom: 6 }}>Comp off request submitted</div>
       <div style={{ fontSize: 13, color: C.textSec, marginBottom: 28 }}>Pending approval from {approver?.full_name || 'your approver'}</div>
-      <button onClick={() => { setDone(false); setForm({ workedDate: '', workedHours: '8', reason: '' }); setErrs({}) }} style={btnStyle(C.purple, '#fff')}>Submit Another</button>
+      <button onClick={() => { setDone(false); setForm({ workedDate: '', reason: '' }); setAttendance(null); setErrs({}); setExisting(prev => prev) }} style={btnStyle(C.purple, '#fff')}>Submit Another</button>
     </div>
   )
+
+  const formatTime = ts => ts ? new Date(ts).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '—'
 
   return (
     <div>
       <div style={{ ...card, background: C.purpleBg, border: `0.5px solid #AFA9EC`, marginBottom: 18 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, color: '#3C3489', marginBottom: 4 }}>How comp off works</div>
-        <div style={{ fontSize: 12, color: '#534AB7', lineHeight: 1.65 }}>Work ≥6 hrs on holiday/weekend earns 1 day. Work 3–5 hrs earns 0.5 days. Balance is credited once approved.</div>
+        <div style={{ fontSize: 13, fontWeight: 500, color: '#3C3489', marginBottom: 4 }}>Comp-Off Policy</div>
+        <div style={{ fontSize: 12, color: '#534AB7', lineHeight: 1.65 }}>
+          Work 8+ hours on a weekend/holiday to earn 1 comp-off day. Attendance with valid check-in/check-out is required. System will auto-validate your attendance record.
+        </div>
       </div>
       {approver && (
         <div style={{ ...card, background: C.bgSec, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -246,17 +335,52 @@ export function ApplyCompOff({ employee, onToast }) {
           </div>
         </div>
       )}
-      <Field label="Date Worked (holiday / weekend)" error={errs.workedDate}>
-        <input type="date" max={today} value={form.workedDate} onChange={e => setForm(f => ({ ...f, workedDate: e.target.value }))} style={inputStyle(errs.workedDate)} />
+      <Field label="Date Worked (weekend / holiday)" error={errs.workedDate}>
+        <input type="date" max={today} value={form.workedDate} onChange={e => { setForm(f => ({ ...f, workedDate: e.target.value })); setErrs({}); }} style={inputStyle(errs.workedDate)} />
       </Field>
-      <Field label="Hours Worked" error={errs.workedHours}>
-        <input type="number" min={1} max={12} value={form.workedHours} onChange={e => setForm(f => ({ ...f, workedHours: e.target.value }))} style={inputStyle(errs.workedHours)} />
-        {hrs >= 1 && !isNaN(hrs) && <div style={{ fontSize: 12, color: C.purple, marginTop: 5 }}>Will earn {earnedDays} comp off day{earnedDays !== 1 ? 's' : ''}</div>}
-      </Field>
+
+      {/* Attendance validation feedback */}
+      {attLoading && (
+        <div style={{ background: C.bgSec, borderRadius: 8, padding: '10px 12px', marginBottom: 14, fontSize: 12, color: C.textSec }}>
+          Validating attendance...
+        </div>
+      )}
+      {attError && !attLoading && form.workedDate && (
+        <div style={{ background: C.redBg, color: C.red, fontSize: 12, padding: '10px 12px', borderRadius: 8, marginBottom: 14 }}>
+          {attError}
+        </div>
+      )}
+      {attendance && !attLoading && (
+        <div style={{ background: C.greenBg, borderRadius: 10, padding: '12px 14px', marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: '#0F6E56', fontWeight: 600, marginBottom: 6 }}>✓ Attendance Verified</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 10, color: '#0F6E56' }}>Check In</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#0F6E56' }}>{formatTime(attendance.check_in_time)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 10, color: '#0F6E56' }}>Check Out</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#0F6E56' }}>{formatTime(attendance.check_out_time)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 10, color: '#0F6E56' }}>Total Hours</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#0F6E56' }}>{attendance.total_hours?.toFixed(1)}h</div>
+            </div>
+          </div>
+          <div style={{ fontSize: 12, color: '#0F6E56', marginTop: 8, fontWeight: 500 }}>
+            Will earn {earnedDays} comp-off day{earnedDays !== 1 ? 's' : ''}
+          </div>
+        </div>
+      )}
+
       <Field label="Work Done / Reason" error={errs.reason}>
-        <textarea rows={3} value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} placeholder="Describe the work done…" style={{ ...inputStyle(errs.reason), resize: 'vertical' }} />
+        <textarea rows={3} value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} placeholder="Describe the work done on that day…" style={{ ...inputStyle(errs.reason), resize: 'vertical' }} />
       </Field>
-      <button onClick={submit} disabled={submitting} style={{ ...btnStyle(C.purple, '#fff'), width: '100%', opacity: submitting ? 0.7 : 1 }}>
+      <button
+        onClick={submit}
+        disabled={submitting || !attendance}
+        style={{ ...btnStyle(C.purple, '#fff'), width: '100%', opacity: (submitting || !attendance) ? 0.5 : 1 }}
+      >
         {submitting ? 'Submitting…' : 'Submit Comp Off Request'}
       </button>
     </div>
