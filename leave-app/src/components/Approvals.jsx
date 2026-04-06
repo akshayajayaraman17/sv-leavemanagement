@@ -3,6 +3,7 @@ import {
   fetchPendingForApprover, fetchPendingCompForApprover,
   decideLeave, decideCompOff,
   fetchPendingTimesheets, decideTimesheet, fetchTimesheetEntries,
+  fetchPendingRegularizations, decideRegularization, updateAttendanceStatus,
 } from '../lib/api'
 import { Avatar, Badge, C, Empty, Spinner, btnStyle, card, formatDate, inputStyle } from './UI'
 
@@ -11,6 +12,7 @@ export default function Approvals({ employee, onToast }) {
   const [leaves,     setLeaves]   = useState([])
   const [comps,      setComps]    = useState([])
   const [timesheets, setTimesheets] = useState([])
+  const [regs,       setRegs]     = useState([])
   const [loading,    setLoading]  = useState(true)
   const [deciding,   setDeciding] = useState(null)
   const [expandedTs, setExpandedTs] = useState(null)
@@ -24,10 +26,12 @@ export default function Approvals({ employee, onToast }) {
       fetchPendingForApprover(employee.id),
       fetchPendingCompForApprover(employee.id),
       fetchPendingTimesheets(employee.id),
-    ]).then(([l, c, ts]) => {
+      fetchPendingRegularizations(employee.id),
+    ]).then(([l, c, ts, r]) => {
       setLeaves(l.data || [])
       setComps(c.data || [])
       setTimesheets(ts.data || [])
+      setRegs(r.data || [])
     }).finally(() => setLoading(false))
   }
 
@@ -71,6 +75,22 @@ export default function Approvals({ employee, onToast }) {
     setTimesheets(p => p.filter(t => t.id !== id))
   }
 
+  const handleRegularization = async (reg, status) => {
+    setDeciding(reg.id)
+    const reason = status === 'rejected' ? rejectReason : null
+    const { error } = await decideRegularization(reg.id, status, reason)
+    if (!error && status === 'approved') {
+      // Update attendance status to present and set checkout time
+      await updateAttendanceStatus(reg.attendance_id, 'present')
+    }
+    setDeciding(null)
+    setRejectId(null)
+    setRejectReason('')
+    if (error) { onToast(error.message, 'error'); return }
+    onToast(`Regularization ${status}`)
+    setRegs(p => p.filter(r => r.id !== reg.id))
+  }
+
   if (loading) return <Spinner />
 
   const TB = ({ id, label, count }) => (
@@ -95,9 +115,10 @@ export default function Approvals({ employee, onToast }) {
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
-        <TB id="comp"       label="Comp Off"      count={comps.length} />
-        <TB id="leaves"     label="Leave Requests" count={leaves.length} />
-        <TB id="timesheets" label="Timesheets"     count={timesheets.length} />
+        <TB id="comp"       label="Comp Off"        count={comps.length} />
+        <TB id="leaves"     label="Leave Requests"   count={leaves.length} />
+        <TB id="timesheets" label="Timesheets"       count={timesheets.length} />
+        <TB id="regs"       label="Regularizations"  count={regs.length} />
       </div>
 
       {tab === 'comp' && (
@@ -161,6 +182,76 @@ export default function Approvals({ employee, onToast }) {
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => handleLeave(l.id, 'approved')} disabled={deciding === l.id} style={{ ...btnStyle(C.green, '#fff'), flex: 1 }}>Approve</button>
               <button onClick={() => handleLeave(l.id, 'rejected')} disabled={deciding === l.id} style={{ ...btnStyle(C.bgSec, C.red, `0.5px solid #F09595`), flex: 1 }}>Reject</button>
+            </div>
+          </div>
+        ))
+      )}
+
+      {tab === 'regs' && (
+        regs.length === 0 ? <Empty text="No pending regularization requests ✓" /> :
+        regs.map(r => (
+          <div key={r.id} style={{ ...card, marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <Avatar initials={r.employee?.avatar_initials} size={34} color={C.amber} bg={C.amberBg} />
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 500 }}>{r.employee?.full_name}</div>
+                <div style={{ fontSize: 11, color: C.textTert }}>{r.employee?.department} · Attendance Regularization</div>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+              <div style={{ background: C.bgSec, borderRadius: 8, padding: '7px 10px' }}>
+                <div style={{ fontSize: 10, color: C.textTert }}>Date</div>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{formatDate(r.attendance?.date)}</div>
+              </div>
+              <div style={{ background: C.bgSec, borderRadius: 8, padding: '7px 10px' }}>
+                <div style={{ fontSize: 10, color: C.textTert }}>Check-In Time</div>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>
+                  {r.attendance?.check_in_time
+                    ? new Date(r.attendance.check_in_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
+                    : '—'}
+                </div>
+              </div>
+            </div>
+            {r.check_out_time && (
+              <div style={{ background: C.bgSec, borderRadius: 8, padding: '7px 10px', marginBottom: 10 }}>
+                <div style={{ fontSize: 10, color: C.textTert }}>Proposed Check-Out</div>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{r.check_out_time}</div>
+              </div>
+            )}
+            <div style={{ fontSize: 12, color: C.textSec, borderTop: `0.5px solid ${C.border}`, padding: '8px 0 10px' }}>
+              <strong>Reason:</strong> {r.reason}
+            </div>
+            {rejectId === r.id && (
+              <div style={{ marginBottom: 10 }}>
+                <input
+                  autoFocus
+                  value={rejectReason}
+                  onChange={e => setRejectReason(e.target.value)}
+                  placeholder="Reason for rejection…"
+                  style={{ ...inputStyle(true), marginBottom: 8 }}
+                />
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => handleRegularization(r, 'approved')}
+                disabled={deciding === r.id}
+                style={{ ...btnStyle(C.green, '#fff'), flex: 1 }}
+              >Approve</button>
+              <button
+                onClick={() => {
+                  if (rejectId === r.id && rejectReason.trim()) {
+                    handleRegularization(r, 'rejected')
+                  } else {
+                    setRejectId(r.id)
+                    setRejectReason('')
+                  }
+                }}
+                disabled={deciding === r.id}
+                style={{ ...btnStyle(C.bgSec, C.red, `0.5px solid #F09595`), flex: 1 }}
+              >
+                {rejectId === r.id ? 'Confirm Reject' : 'Reject'}
+              </button>
             </div>
           </div>
         ))

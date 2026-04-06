@@ -32,7 +32,16 @@ export const createEmployee = async (payload) => {
   const { data, error } = await supabase.functions.invoke('create-employee', {
     body: payload,
   })
-  return { data, error }
+  if (error) {
+    // FunctionsHttpError — parse the actual message from the response body
+    const msg = error.context?.body
+      ? await error.context.json().then(b => b.error).catch(() => error.message)
+      : error.message
+    return { data: null, error: msg || 'Failed to create employee' }
+  }
+  // Edge function may return error in the data body for non-2xx responses
+  if (data?.error) return { data: null, error: data.error }
+  return { data, error: null }
 }
 
 export const updateEmployee = async (id, updates) => {
@@ -272,6 +281,76 @@ export const checkOut = async (id, payload) => {
   const { data, error } = await supabase
     .from('attendance')
     .update(payload)
+    .eq('id', id)
+    .select()
+    .single()
+  return { data, error }
+}
+
+// ─── Attendance Punches ──────────────────────────────────────────────────────
+export const fetchPunches = async (attendanceId) => {
+  const { data, error } = await supabase
+    .from('attendance_punches')
+    .select('*')
+    .eq('attendance_id', attendanceId)
+    .order('punch_time', { ascending: true })
+  return { data, error }
+}
+
+export const addPunch = async (payload) => {
+  const { data, error } = await supabase
+    .from('attendance_punches')
+    .insert(payload)
+    .select()
+    .single()
+  return { data, error }
+}
+
+// ─── Attendance Regularizations ──────────────────────────────────────────────
+export const fetchMyRegularizations = async (employeeId) => {
+  const { data, error } = await supabase
+    .from('attendance_regularizations')
+    .select('*, attendance:attendance_id(date)')
+    .eq('employee_id', employeeId)
+    .order('created_at', { ascending: false })
+  return { data, error }
+}
+
+export const createRegularization = async (payload) => {
+  const { data, error } = await supabase
+    .from('attendance_regularizations')
+    .insert(payload)
+    .select()
+    .single()
+  return { data, error }
+}
+
+export const fetchPendingRegularizations = async (approverId) => {
+  const { data, error } = await supabase
+    .from('attendance_regularizations')
+    .select('*, attendance:attendance_id(date, check_in_time, total_hours), employee:employee_id(full_name, avatar_initials, department)')
+    .eq('approver_id', approverId)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
+  return { data, error }
+}
+
+export const decideRegularization = async (id, status, rejectReason = null) => {
+  const updates = { status, decided_at: new Date().toISOString() }
+  if (rejectReason) updates.reject_reason = rejectReason
+  const { data, error } = await supabase
+    .from('attendance_regularizations')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single()
+  return { data, error }
+}
+
+export const updateAttendanceStatus = async (id, status) => {
+  const { data, error } = await supabase
+    .from('attendance')
+    .update({ status })
     .eq('id', id)
     .select()
     .single()

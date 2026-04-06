@@ -98,7 +98,12 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast }) {
       if (error) { onToast(error.message, 'error'); setSaving(false); return }
     } else {
       const { data, error } = await createEmployee(form)
-      if (error) { onToast(typeof error === 'string' ? error : error.message, 'error'); setSaving(false); return }
+      if (error) {
+        const msg = typeof error === 'string' ? error : (error.message || 'Failed to create employee')
+        onToast(msg, 'error')
+        setSaving(false)
+        return
+      }
       empId = data?.id
     }
 
