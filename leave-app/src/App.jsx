@@ -58,7 +58,7 @@ const TITLES = {
 }
 
 export default function App() {
-  const { employee, loading, isPasswordRecovery } = useAuth()
+  const { employee, loading } = useAuth()
   const [tab,   setTab]   = useState('dash')
   const [toast, setToast] = useState(null)
 
@@ -73,7 +73,7 @@ export default function App() {
     </div>
   )
 
-  if (!employee || isPasswordRecovery) return <Login />
+  if (!employee) return <Login />
 
   const tabs = NAV[employee.role] || NAV.employee
 
