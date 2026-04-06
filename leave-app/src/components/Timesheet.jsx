@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   fetchOrCreateTimesheet, fetchTimesheetEntries, addTimesheetEntry,
   deleteTimesheetEntry, submitTimesheet, fetchJiraAccount, postJiraWorklog,
-  fetchTimesheetHistory, markEntriesJiraSynced,
+  fetchTimesheetHistory, markEntriesJiraSynced, fetchAttendanceHistory,
 } from '../lib/api'
+import { supabase } from '../lib/supabase'
 import { C, Field, SecTitle, Spinner, btnStyle, card, formatDate, inputStyle } from './UI'
 
 // ── Week helpers ──────────────────────────────────────────────────────────────
@@ -23,6 +24,12 @@ function getWeekDays(weekStart) {
   })
 }
 
+function getFridayOf(weekStart) {
+  const d = new Date(weekStart + 'T12:00:00')
+  d.setDate(d.getDate() + 4)
+  return d.toISOString().split('T')[0]
+}
+
 function fmtWeekLabel(ws) {
   return new Date(ws + 'T12:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
 }
@@ -37,6 +44,7 @@ const TS_STATUS = {
   submitted: { bg: C.amberBg,  color: C.amber,   label: 'Submitted' },
   approved:  { bg: C.greenBg,  color: '#0F6E56', label: 'Approved'  },
   rejected:  { bg: C.redBg,    color: C.red,     label: 'Rejected'  },
+  locked:    { bg: C.redBg,    color: C.red,     label: 'Locked'    },
 }
 function TsBadge({ status }) {
   const s = TS_STATUS[status] || TS_STATUS.draft
@@ -49,16 +57,19 @@ function TsBadge({ status }) {
 }
 
 // ── Add entry inline form ─────────────────────────────────────────────────────
-function EntryForm({ date, timesheetId, employeeId, jiraConnected, onSave, onCancel }) {
+function EntryForm({ date, timesheetId, employeeId, jiraConnected, attHours, dayTsHours, onSave, onCancel }) {
   const [form, setForm] = useState({ jira_issue_key: '', project: '', task_description: '', hours: '1' })
   const [errs, setErrs] = useState({})
   const [saving, setSaving] = useState(false)
+
+  const remaining = (attHours || 0) - dayTsHours
 
   const save = async () => {
     const e = {}
     if (!form.task_description.trim()) e.task_description = 'Required'
     const h = parseFloat(form.hours)
     if (!form.hours || isNaN(h) || h <= 0 || h > 24) e.hours = '0.5 – 24'
+    if (h > remaining && remaining > 0) e.hours = `Max ${remaining.toFixed(1)}h (attendance limit)`
     if (Object.keys(e).length) { setErrs(e); return }
     setSaving(true)
     const { error } = await addTimesheetEntry({
@@ -77,6 +88,11 @@ function EntryForm({ date, timesheetId, employeeId, jiraConnected, onSave, onCan
 
   return (
     <div style={{ background: C.bgSec, borderRadius: 10, padding: 12, marginTop: 10 }}>
+      {attHours > 0 && (
+        <div style={{ fontSize: 11, color: C.textTert, marginBottom: 8 }}>
+          Attendance: {attHours.toFixed(1)}h · Logged: {dayTsHours.toFixed(1)}h · Remaining: {remaining.toFixed(1)}h
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: jiraConnected ? '1fr 1fr' : '1fr', gap: 8, marginBottom: 0 }}>
         {jiraConnected && (
           <Field label="Jira Issue (optional)">
@@ -109,7 +125,7 @@ function EntryForm({ date, timesheetId, employeeId, jiraConnected, onSave, onCan
       </Field>
       <Field label="Hours" error={errs.hours}>
         <input
-          type="number" min="0.5" max="24" step="0.5"
+          type="number" min="0.5" max={remaining > 0 ? remaining : 24} step="0.5"
           value={form.hours}
           onChange={e => setForm(f => ({ ...f, hours: e.target.value }))}
           style={{ ...inputStyle(errs.hours), fontSize: 13, maxWidth: 100 }}
@@ -128,14 +144,63 @@ function EntryForm({ date, timesheetId, employeeId, jiraConnected, onSave, onCan
   )
 }
 
+// ── Late Submission Request ───────────────────────────────────────────────────
+function LateRequestForm({ timesheet, employee, onSubmit, onCancel }) {
+  const [reason, setReason] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const submit = async () => {
+    if (!reason.trim()) return
+    setSaving(true)
+    // Create late submission request using attendance_regularizations table
+    // or we store it as a special status on the timesheet
+    const { error } = await supabase
+      .from('timesheets')
+      .update({ status: 'draft', reject_reason: `Late submission: ${reason.trim()}` })
+      .eq('id', timesheet.id)
+    setSaving(false)
+    if (error) return
+    onSubmit()
+  }
+
+  return (
+    <div style={{ ...card, background: C.amberBg, border: `1px solid ${C.amber}`, marginBottom: 16 }}>
+      <div style={{ fontSize: 14, fontWeight: 600, color: '#854F0B', marginBottom: 6 }}>
+        Late Submission Request
+      </div>
+      <div style={{ fontSize: 12, color: '#854F0B', marginBottom: 12 }}>
+        The deadline for this week has passed. Submit a reason to unlock the timesheet.
+      </div>
+      <Field label="Reason for late submission">
+        <input
+          value={reason}
+          onChange={e => setReason(e.target.value)}
+          placeholder="e.g., Was on leave, system issue…"
+          style={inputStyle()}
+        />
+      </Field>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={submit} disabled={saving || !reason.trim()} style={{ ...btnStyle(C.green, '#fff'), flex: 1, opacity: saving ? 0.7 : 1 }}>
+          {saving ? 'Submitting…' : 'Request Unlock'}
+        </button>
+        <button onClick={onCancel} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '8px 16px' }}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 export default function Timesheet({ employee, onToast }) {
   const [weekOffset,   setWeekOffset]   = useState(0)
   const weekStart = getMondayOf(weekOffset)
   const weekDays  = getWeekDays(weekStart)
+  const friday    = getFridayOf(weekStart)
 
   const [timesheet,    setTimesheet]    = useState(null)
   const [entries,      setEntries]      = useState([])
+  const [attMap,       setAttMap]       = useState({})  // date → attendance record
   const [loading,      setLoading]      = useState(true)
   const [addingDay,    setAddingDay]    = useState(null)
   const [deleting,     setDeleting]     = useState(null)
@@ -144,18 +209,28 @@ export default function Timesheet({ employee, onToast }) {
   const [syncJira,     setSyncJira]     = useState(false)
   const [history,      setHistory]      = useState([])
   const [showHistory,  setShowHistory]  = useState(false)
-  const [rejectInput,  setRejectInput]  = useState(null)
+  const [showLateReq,  setShowLateReq]  = useState(false)
 
   const load = async () => {
     setLoading(true)
     setAddingDay(null)
-    const [{ data: ts, error }, { data: jira }] = await Promise.all([
+    const [{ data: ts, error }, { data: jira }, { data: attData }] = await Promise.all([
       fetchOrCreateTimesheet(employee.id, weekStart),
       fetchJiraAccount(employee.id),
+      fetchAttendanceHistory(employee.id, 30),
     ])
     if (error || !ts) { setLoading(false); onToast?.(error?.message, 'error'); return }
     setTimesheet(ts)
     setJiraConnected(!!jira)
+
+    // Build attendance map for this week
+    const map = {}
+    for (const day of weekDays) {
+      const att = (attData || []).find(a => a.date === day)
+      if (att) map[day] = att
+    }
+    setAttMap(map)
+
     const { data: ents } = await fetchTimesheetEntries(ts.id)
     setEntries(ents || [])
     setLoading(false)
@@ -183,8 +258,42 @@ export default function Timesheet({ employee, onToast }) {
     setDeleting(null)
   }
 
+  // Check if deadline has passed (after Friday of this week)
+  const isDeadlinePassed = today > friday
+  const isCurrentWeek = weekOffset === 0
+  const isFutureWeek = weekOffset > 0
+
+  // Pre-submission validation
+  const getSubmitErrors = () => {
+    const errors = []
+    for (const day of weekDays) {
+      if (day > today) continue  // skip future days
+      const att = attMap[day]
+      const tsHours = hoursPerDay[day] || 0
+
+      if (!att || !att.check_in_time) {
+        if (tsHours > 0) errors.push(`${DAY_SHORT[weekDays.indexOf(day)]}: No attendance record`)
+        continue
+      }
+      if (att.check_in_time && !att.check_out_time) {
+        errors.push(`${DAY_SHORT[weekDays.indexOf(day)]}: Incomplete attendance (missing check-out)`)
+      }
+      if (tsHours > (att.total_hours || 0)) {
+        errors.push(`${DAY_SHORT[weekDays.indexOf(day)]}: Timesheet ${tsHours}h exceeds attendance ${(att.total_hours || 0).toFixed(1)}h`)
+      }
+    }
+    return errors
+  }
+
   const handleSubmit = async () => {
     if (!timesheet || totalHours === 0) return
+
+    const submitErrors = getSubmitErrors()
+    if (submitErrors.length > 0) {
+      onToast(submitErrors[0], 'error')
+      return
+    }
+
     setSubmitting(true)
 
     // Sync to Jira if opted in
@@ -223,9 +332,8 @@ export default function Timesheet({ employee, onToast }) {
   if (loading) return <Spinner />
 
   const isDraft      = timesheet?.status === 'draft'
-  const isFutureWeek = weekOffset > 0
-  const isCurrentWeek = weekOffset === 0
-
+  const isLocked     = isDeadlinePassed && isDraft && !isFutureWeek
+  const submitErrors = getSubmitErrors()
   const unsyncedJiraEntries = entries.filter(e => e.jira_issue_key && !e.jira_synced)
 
   return (
@@ -250,10 +358,35 @@ export default function Timesheet({ employee, onToast }) {
         >›</button>
       </div>
 
+      {/* ── Locked banner ── */}
+      {isLocked && !showLateReq && (
+        <div style={{ ...card, background: C.redBg, border: `1px solid ${C.red}`, marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.red, marginBottom: 4 }}>
+            Timesheet Locked
+          </div>
+          <div style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>
+            The Friday deadline has passed. This timesheet is locked. Submit a late request to unlock it.
+          </div>
+          <button onClick={() => setShowLateReq(true)} style={{ ...btnStyle(C.red, '#fff'), fontSize: 12, padding: '8px 16px' }}>
+            Request Late Submission
+          </button>
+        </div>
+      )}
+
+      {/* ── Late submission form ── */}
+      {showLateReq && (
+        <LateRequestForm
+          timesheet={timesheet}
+          employee={employee}
+          onSubmit={() => { setShowLateReq(false); load(); onToast('Late submission request sent') }}
+          onCancel={() => setShowLateReq(false)}
+        />
+      )}
+
       {/* ── Hours rule banner ── */}
       <div style={{ ...card, background: C.blueBg, border: `0.5px solid ${C.blue}`, marginBottom: 16 }}>
         <div style={{ fontSize: 12, color: C.blue, lineHeight: 1.6 }}>
-          <strong>Hours rule:</strong> Log ≥ 8h for a full day · 4h for a half day · &lt; 4h will be treated as leave
+          <strong>Rules:</strong> Timesheet hours must not exceed attendance hours · Log ≥ 8h for a full day · Submit by Friday EOD
         </div>
       </div>
 
@@ -268,7 +401,7 @@ export default function Timesheet({ employee, onToast }) {
             {totalHours >= 40 ? '✓ 40h target met' : `${(40 - totalHours).toFixed(1)}h remaining`}
           </div>
         </div>
-        <TsBadge status={timesheet?.status} />
+        <TsBadge status={isLocked ? 'locked' : timesheet?.status} />
       </div>
 
       {/* Rejection reason */}
@@ -281,20 +414,32 @@ export default function Timesheet({ employee, onToast }) {
       {/* ── Daily rows ── */}
       {weekDays.map((date, i) => {
         const dayEntries = entries.filter(e => e.date === date)
-        const dayHours   = hoursPerDay[date] || 0
+        const dayTsHours = hoursPerDay[date] || 0
+        const att        = attMap[date]
+        const attHours   = att?.total_hours || 0
+        const hasAttendance = !!att?.check_in_time
+        const isComplete = hasAttendance && !!att?.check_out_time
         const isPast     = date < today
         const isFuture   = date > today
         const isToday    = date === today
-        const canAdd     = isDraft && !isFuture
+        const canAdd     = isDraft && !isFuture && !isLocked && (hasAttendance || !isPast)
+
+        // Attendance status for this day
+        const attStatus = !hasAttendance && isPast ? 'absent'
+          : hasAttendance && !att?.check_out_time ? 'incomplete'
+          : hasAttendance ? 'present' : null
+
+        // Validation: timesheet hours exceed attendance
+        const exceedsAtt = dayTsHours > attHours && attHours > 0
 
         return (
-          <div key={date} style={{ ...card, marginBottom: 12 }}>
+          <div key={date} style={{ ...card, marginBottom: 12, border: exceedsAtt ? `1px solid ${C.red}` : undefined }}>
             {/* Day header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{
                   width: 40, height: 40, borderRadius: 10, flexShrink: 0,
-                  background: isToday ? C.green : isPast && dayHours >= 8 ? C.greenBg : isPast && dayHours > 0 ? C.amberBg : C.bgSec,
+                  background: isToday ? C.green : isPast && dayTsHours >= 8 ? C.greenBg : isPast && dayTsHours > 0 ? C.amberBg : C.bgSec,
                   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                 }}>
                   <span style={{ fontSize: 8, fontWeight: 700, textTransform: 'uppercase', color: isToday ? 'rgba(255,255,255,0.7)' : C.textTert }}>
@@ -307,29 +452,56 @@ export default function Timesheet({ employee, onToast }) {
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 500 }}>{DAY_LABELS[i]}</div>
                   <div style={{ fontSize: 11, color:
-                    dayHours >= 8 ? C.green :
-                    dayHours >= 4 ? C.amber :
-                    dayHours > 0  ? C.red   : C.textTert
+                    exceedsAtt ? C.red :
+                    dayTsHours >= 8 ? C.green :
+                    dayTsHours >= 4 ? C.amber :
+                    dayTsHours > 0  ? C.red   : C.textTert
                   }}>
-                    {dayHours >= 8  ? `${dayHours}h ✓ Full day`          :
-                     dayHours >= 4  ? `${dayHours}h — Half day`          :
-                     dayHours > 0   ? `${dayHours}h ✗ Leave may apply`   :
-                     isPast         ? 'No hours — leave will apply'       : 'No entries yet'}
+                    {exceedsAtt ? `${dayTsHours}h ✗ Exceeds attendance (${attHours.toFixed(1)}h)` :
+                     dayTsHours >= 8  ? `${dayTsHours}h ✓ Full day`          :
+                     dayTsHours >= 4  ? `${dayTsHours}h — Half day`          :
+                     dayTsHours > 0   ? `${dayTsHours}h ✗ Leave may apply`   :
+                     isPast           ? 'No hours — leave will apply'         : 'No entries yet'}
                   </div>
                 </div>
               </div>
-              {canAdd && (
-                <button
-                  onClick={() => setAddingDay(addingDay === date ? null : date)}
-                  style={{
-                    ...btnStyle(addingDay === date ? C.redBg : C.bgSec, addingDay === date ? C.red : C.textSec),
-                    fontSize: 12, padding: '5px 12px', borderRadius: 20,
-                  }}
-                >
-                  {addingDay === date ? '✕ Cancel' : '+ Add'}
-                </button>
-              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {/* Attendance indicator */}
+                {isPast && (
+                  <span style={{
+                    fontSize: 9, fontWeight: 500, padding: '2px 6px', borderRadius: 8,
+                    background: attStatus === 'present' ? C.greenBg : attStatus === 'incomplete' ? C.amberBg : C.redBg,
+                    color: attStatus === 'present' ? '#0F6E56' : attStatus === 'incomplete' ? '#854F0B' : C.red,
+                  }}>
+                    {attStatus === 'present' ? `${attHours.toFixed(1)}h att` :
+                     attStatus === 'incomplete' ? 'No out' : 'No att'}
+                  </span>
+                )}
+                {canAdd && (
+                  <button
+                    onClick={() => setAddingDay(addingDay === date ? null : date)}
+                    style={{
+                      ...btnStyle(addingDay === date ? C.redBg : C.bgSec, addingDay === date ? C.red : C.textSec),
+                      fontSize: 12, padding: '5px 12px', borderRadius: 20,
+                    }}
+                  >
+                    {addingDay === date ? '✕ Cancel' : '+ Add'}
+                  </button>
+                )}
+              </div>
             </div>
+
+            {/* Blocked message */}
+            {isPast && !hasAttendance && dayTsHours === 0 && (
+              <div style={{ fontSize: 11, color: C.red, marginTop: 6, padding: '4px 0' }}>
+                No attendance record — timesheet entry blocked
+              </div>
+            )}
+            {isPast && attStatus === 'incomplete' && (
+              <div style={{ fontSize: 11, color: '#854F0B', marginTop: 6, padding: '4px 0' }}>
+                Incomplete attendance (missing check-out) — please regularize first
+              </div>
+            )}
 
             {/* Entries list */}
             {dayEntries.length > 0 && (
@@ -360,7 +532,7 @@ export default function Timesheet({ employee, onToast }) {
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                       <span style={{ fontSize: 14, fontWeight: 700 }}>{entry.hours}h</span>
-                      {isDraft && (
+                      {isDraft && !isLocked && (
                         <button
                           onClick={() => handleDelete(entry.id)}
                           disabled={deleting === entry.id}
@@ -371,8 +543,8 @@ export default function Timesheet({ employee, onToast }) {
                   </div>
                 ))}
                 <div style={{ paddingTop: 6, textAlign: 'right', fontSize: 12, fontWeight: 600,
-                  color: dayHours >= 8 ? C.green : dayHours >= 4 ? C.amber : C.red }}>
-                  {dayHours}h {dayHours >= 8 ? '✓' : dayHours >= 4 ? '(half day)' : '(leave)'}
+                  color: exceedsAtt ? C.red : dayTsHours >= 8 ? C.green : dayTsHours >= 4 ? C.amber : C.red }}>
+                  {dayTsHours}h {exceedsAtt ? `✗ exceeds ${attHours.toFixed(1)}h` : dayTsHours >= 8 ? '✓' : dayTsHours >= 4 ? '(half day)' : '(leave)'}
                 </div>
               </div>
             )}
@@ -384,6 +556,8 @@ export default function Timesheet({ employee, onToast }) {
                 timesheetId={timesheet.id}
                 employeeId={employee.id}
                 jiraConnected={jiraConnected}
+                attHours={attHours}
+                dayTsHours={dayTsHours}
                 onSave={async () => { setAddingDay(null); await reloadEntries() }}
                 onCancel={() => setAddingDay(null)}
               />
@@ -392,8 +566,18 @@ export default function Timesheet({ employee, onToast }) {
         )
       })}
 
+      {/* ── Validation errors ── */}
+      {isDraft && !isLocked && submitErrors.length > 0 && (
+        <div style={{ ...card, background: C.amberBg, border: `0.5px solid ${C.amber}`, marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#854F0B', marginBottom: 4 }}>Pre-submission issues</div>
+          {submitErrors.map((e, i) => (
+            <div key={i} style={{ fontSize: 11, color: '#854F0B', lineHeight: 1.6 }}>• {e}</div>
+          ))}
+        </div>
+      )}
+
       {/* ── Submit section ── */}
-      {isDraft && (
+      {isDraft && !isLocked && (
         <div style={{ ...card, marginTop: 4 }}>
           {jiraConnected && unsyncedJiraEntries.length > 0 && (
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: C.textSec, marginBottom: 14, cursor: 'pointer' }}>
@@ -403,10 +587,10 @@ export default function Timesheet({ employee, onToast }) {
           )}
           <button
             onClick={handleSubmit}
-            disabled={submitting || totalHours === 0}
+            disabled={submitting || totalHours === 0 || submitErrors.length > 0}
             style={{
               ...btnStyle(C.green, '#fff'), width: '100%',
-              opacity: (submitting || totalHours === 0) ? 0.6 : 1,
+              opacity: (submitting || totalHours === 0 || submitErrors.length > 0) ? 0.5 : 1,
             }}
           >
             {submitting ? 'Submitting…' : 'Submit for Approval'}

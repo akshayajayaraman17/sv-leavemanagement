@@ -182,7 +182,7 @@ export function ApplyCompOff({ employee, onToast }) {
   const [employees,  setEmployees]  = useState([])
   const [approver,   setApprover]   = useState(null)
   const [existingReqs, setExisting] = useState([])
-  const [form,       setForm]       = useState({ workedDate: '', reason: '' })
+  const [form,       setForm]       = useState({ workedDate: '', availDate: '', reason: '' })
   const [attendance, setAttendance] = useState(null)   // attendance record for selected date
   const [attLoading, setAttLoading] = useState(false)
   const [attError,   setAttError]   = useState('')
@@ -282,6 +282,15 @@ export function ApplyCompOff({ employee, onToast }) {
     const e = {}
     if (!form.workedDate) e.workedDate = 'Required'
     if (!attendance) e.workedDate = attError || 'Invalid date'
+    if (!form.availDate) e.availDate = 'Required'
+    if (form.availDate && form.workedDate && form.availDate <= form.workedDate) e.availDate = 'Must be after worked date'
+    // 30-day validity check
+    if (form.availDate && form.workedDate) {
+      const worked = new Date(form.workedDate)
+      const avail = new Date(form.availDate)
+      const diffDays = (avail - worked) / (1000 * 60 * 60 * 24)
+      if (diffDays > 30) e.availDate = 'Must be within 30 days of worked date'
+    }
     if (!form.reason.trim()) e.reason = 'Required'
     return e
   }
@@ -312,7 +321,7 @@ export function ApplyCompOff({ employee, onToast }) {
       <div style={{ fontSize: 44, color: C.purple, marginBottom: 14 }}>✓</div>
       <div style={{ fontSize: 18, fontWeight: 500, marginBottom: 6 }}>Comp off request submitted</div>
       <div style={{ fontSize: 13, color: C.textSec, marginBottom: 28 }}>Pending approval from {approver?.full_name || 'your approver'}</div>
-      <button onClick={() => { setDone(false); setForm({ workedDate: '', reason: '' }); setAttendance(null); setErrs({}); setExisting(prev => prev) }} style={btnStyle(C.purple, '#fff')}>Submit Another</button>
+      <button onClick={() => { setDone(false); setForm({ workedDate: '', availDate: '', reason: '' }); setAttendance(null); setErrs({}); setExisting(prev => prev) }} style={btnStyle(C.purple, '#fff')}>Submit Another</button>
     </div>
   )
 
@@ -371,6 +380,22 @@ export function ApplyCompOff({ employee, onToast }) {
             Will earn {earnedDays} comp-off day{earnedDays !== 1 ? 's' : ''}
           </div>
         </div>
+      )}
+
+      {attendance && (
+        <Field label="Date to Avail Comp-Off" error={errs.availDate}>
+          <input
+            type="date"
+            min={form.workedDate ? (() => { const d = new Date(form.workedDate); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0] })() : today}
+            max={form.workedDate ? (() => { const d = new Date(form.workedDate); d.setDate(d.getDate() + 30); return d.toISOString().split('T')[0] })() : undefined}
+            value={form.availDate}
+            onChange={e => { setForm(f => ({ ...f, availDate: e.target.value })); setErrs({}) }}
+            style={inputStyle(errs.availDate)}
+          />
+          <div style={{ fontSize: 11, color: C.textTert, marginTop: 4 }}>
+            Must be within 30 days of the worked date
+          </div>
+        </Field>
       )}
 
       <Field label="Work Done / Reason" error={errs.reason}>
