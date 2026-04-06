@@ -26,22 +26,51 @@ export const fetchEmployee = async (id) => {
   return { data, error }
 }
 
-// Admin: create employee + auth user via Supabase Admin (uses service role)
-// We use a Supabase Edge Function for this (see /supabase/functions/create-employee)
+// Admin: create employee — sign up auth user + insert employee record
+// Uses a separate Supabase client for signUp so admin session is preserved
 export const createEmployee = async (payload) => {
-  const { data, error } = await supabase.functions.invoke('create-employee', {
-    body: payload,
+  const { createClient } = await import('@supabase/supabase-js')
+  const tempClient = createClient(
+    import.meta.env.VITE_SUPABASE_URL,
+    import.meta.env.VITE_SUPABASE_ANON_KEY,
+    { auth: { persistSession: false, autoRefreshToken: false } }
+  )
+
+  // 1. Create auth user via signUp (no session stored due to persistSession: false)
+  const { data: authData, error: authErr } = await tempClient.auth.signUp({
+    email: payload.email,
+    password: payload.password,
   })
-  if (error) {
-    // FunctionsHttpError — parse the actual message from the response body
-    const msg = error.context?.body
-      ? await error.context.json().then(b => b.error).catch(() => error.message)
-      : error.message
-    return { data: null, error: msg || 'Failed to create employee' }
+
+  if (authErr) return { data: null, error: authErr.message }
+  if (!authData.user) return { data: null, error: 'Failed to create user account' }
+
+  const newUserId = authData.user.id
+
+  // 2. Insert employee record (using admin's session client)
+  const { data: emp, error: empErr } = await supabase
+    .from('employees')
+    .insert({
+      id: newUserId,
+      email: payload.email,
+      full_name: payload.full_name,
+      employee_code: payload.employee_code,
+      phone: payload.phone || null,
+      department: payload.department || null,
+      designation: payload.designation || null,
+      role: payload.role || 'employee',
+      joining_date: payload.joining_date,
+      manager_id: payload.manager_id || null,
+    })
+    .select()
+    .single()
+
+  if (empErr) {
+    // Rollback: can't delete auth user without service role, but employee insert failed
+    return { data: null, error: empErr.message }
   }
-  // Edge function may return error in the data body for non-2xx responses
-  if (data?.error) return { data: null, error: data.error }
-  return { data, error: null }
+
+  return { data: { id: newUserId, ...emp }, error: null }
 }
 
 export const updateEmployee = async (id, updates) => {
