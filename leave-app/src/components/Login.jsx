@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { signIn } from '../lib/api'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../lib/AuthContext'
 import { C, btnStyle, inputStyle, Field } from './UI'
 
 // ── Shared card wrapper ────────────────────────────────────────────────────────
@@ -99,49 +100,31 @@ function SignInForm({ onForgot }) {
   )
 }
 
-// ── Forgot password — 3 steps ─────────────────────────────────────────────────
-// step: 'email' → 'otp' → 'reset' → 'done'
-function ForgotPassword({ onBack }) {
-  const [step,    setStep]    = useState('email')
+// ── Forgot password — uses Supabase resetPasswordForEmail ─────────────────────
+// step: 'email' → 'sent' → 'reset' → 'done'
+function ForgotPassword({ onBack, startAtReset }) {
+  const [step,    setStep]    = useState(startAtReset ? 'reset' : 'email')
   const [email,   setEmail]   = useState('')
-  const [otp,     setOtp]     = useState('')
   const [newPw,   setNewPw]   = useState('')
   const [confirm, setConfirm] = useState('')
   const [error,   setError]   = useState('')
   const [loading, setLoading] = useState(false)
 
-  // Step 1 — send OTP
-  const sendOtp = async (e) => {
+  // Step 1 — send reset email
+  const sendResetEmail = async (e) => {
     e.preventDefault()
     if (!email.trim()) { setError('Enter your email address'); return }
     setError('')
     setLoading(true)
-    const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
-      options: { shouldCreateUser: false },
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: window.location.origin,
     })
     setLoading(false)
     if (error) { setError(error.message); return }
-    setStep('otp')
+    setStep('sent')
   }
 
-  // Step 2 — verify OTP
-  const verifyOtp = async (e) => {
-    e.preventDefault()
-    if (otp.trim().length < 4) { setError('Enter the OTP from your email'); return }
-    setError('')
-    setLoading(true)
-    const { error } = await supabase.auth.verifyOtp({
-      email: email.trim(),
-      token: otp.trim(),
-      type:  'email',
-    })
-    setLoading(false)
-    if (error) { setError('Invalid or expired OTP. Try again.'); return }
-    setStep('reset')
-  }
-
-  // Step 3 — set new password
+  // Step 2 — set new password (after user clicks link in email)
   const resetPassword = async (e) => {
     e.preventDefault()
     if (!newPw || newPw.length < 8) { setError('Min 8 characters'); return }
@@ -151,6 +134,7 @@ function ForgotPassword({ onBack }) {
     const { error } = await supabase.auth.updateUser({ password: newPw })
     setLoading(false)
     if (error) { setError(error.message); return }
+    await supabase.auth.signOut()
     setStep('done')
   }
 
@@ -158,8 +142,8 @@ function ForgotPassword({ onBack }) {
     <LoginCard>
       {/* Step indicators */}
       <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 24 }}>
-        {['email','otp','reset'].map((s, i) => {
-          const stepIdx  = ['email','otp','reset'].indexOf(step)
+        {['email','sent','reset'].map((s, i) => {
+          const stepIdx  = ['email','sent','reset'].indexOf(step)
           const isDone   = i < stepIdx || step === 'done'
           const isActive = s === step
           return (
@@ -180,10 +164,10 @@ function ForgotPassword({ onBack }) {
 
       {/* Step 1 — Email */}
       {step === 'email' && (
-        <form onSubmit={sendOtp}>
+        <form onSubmit={sendResetEmail}>
           <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Forgot your password?</div>
           <div style={{ fontSize: 13, color: C.textSec, marginBottom: 20 }}>
-            Enter your work email and we'll send a one-time password (OTP) to reset it.
+            Enter your work email and we'll send a password reset link.
           </div>
           <Field label="Work Email">
             <input
@@ -196,43 +180,35 @@ function ForgotPassword({ onBack }) {
           </Field>
           {error && <div style={{ background: C.redBg, color: C.red, fontSize: 13, padding: '9px 12px', borderRadius: 8, marginBottom: 14 }}>{error}</div>}
           <button type="submit" disabled={loading} style={{ ...btnStyle(C.green, '#fff'), width: '100%', opacity: loading ? 0.7 : 1 }}>
-            {loading ? 'Sending OTP…' : 'Send OTP'}
+            {loading ? 'Sending…' : 'Send Reset Link'}
           </button>
         </form>
       )}
 
-      {/* Step 2 — OTP */}
-      {step === 'otp' && (
-        <form onSubmit={verifyOtp}>
-          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Enter OTP</div>
-          <div style={{ fontSize: 13, color: C.textSec, marginBottom: 20 }}>
-            A 6-digit OTP was sent to <strong>{email}</strong>. Check your inbox (and spam folder).
+      {/* Step 2 — Email sent confirmation */}
+      {step === 'sent' && (
+        <div>
+          <div style={{ textAlign: 'center', padding: '8px 0' }}>
+            <div style={{ fontSize: 36, marginBottom: 12 }}>📧</div>
+            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Check your email</div>
+            <div style={{ fontSize: 13, color: C.textSec, marginBottom: 20 }}>
+              We sent a password reset link to <strong>{email}</strong>. Click the link in the email to set a new password.
+            </div>
+            <div style={{ fontSize: 12, color: C.textTert, marginBottom: 20 }}>
+              Don't see it? Check your spam folder. The link expires in 1 hour.
+            </div>
           </div>
-          <Field label="One-Time Password">
-            <input
-              type="text" required autoFocus
-              value={otp}
-              onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              placeholder="6-digit OTP"
-              maxLength={6}
-              style={{ ...inputStyle(), letterSpacing: '0.2em', fontSize: 18, textAlign: 'center' }}
-            />
-          </Field>
-          {error && <div style={{ background: C.redBg, color: C.red, fontSize: 13, padding: '9px 12px', borderRadius: 8, marginBottom: 14 }}>{error}</div>}
-          <button type="submit" disabled={loading} style={{ ...btnStyle(C.green, '#fff'), width: '100%', opacity: loading ? 0.7 : 1 }}>
-            {loading ? 'Verifying…' : 'Verify OTP'}
-          </button>
           <button
-            type="button"
-            onClick={() => { setError(''); sendOtp({ preventDefault: () => {} }) }}
-            style={{ display: 'block', width: '100%', marginTop: 10, background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: C.textSec }}
+            onClick={() => { setError(''); sendResetEmail({ preventDefault: () => {} }) }}
+            disabled={loading}
+            style={{ ...btnStyle(C.blue, '#fff'), width: '100%', opacity: loading ? 0.7 : 1 }}
           >
-            Resend OTP
+            {loading ? 'Sending…' : 'Resend Email'}
           </button>
-        </form>
+        </div>
       )}
 
-      {/* Step 3 — New password */}
+      {/* Step 3 — New password (after clicking link) */}
       {step === 'reset' && (
         <form onSubmit={resetPassword}>
           <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Set new password</div>
@@ -292,8 +268,19 @@ function ForgotPassword({ onBack }) {
 
 // ── Root export ────────────────────────────────────────────────────────────────
 export default function Login() {
+  const { isPasswordRecovery, clearPasswordRecovery } = useAuth()
   const [showForgot, setShowForgot] = useState(false)
 
-  if (showForgot) return <ForgotPassword onBack={() => setShowForgot(false)} />
+  const handleBack = () => {
+    setShowForgot(false)
+    if (isPasswordRecovery) {
+      clearPasswordRecovery()
+      supabase.auth.signOut()
+    }
+  }
+
+  if (isPasswordRecovery || showForgot) {
+    return <ForgotPassword onBack={handleBack} startAtReset={isPasswordRecovery} />
+  }
   return <SignInForm onForgot={() => setShowForgot(true)} />
 }
