@@ -111,17 +111,14 @@ function ForgotPassword({ onBack }) {
   const [info,    setInfo]    = useState('')
   const [loading, setLoading] = useState(false)
 
-  // Step 1 — send OTP
+  // Step 1 — send recovery OTP
   const sendOtp = async (e) => {
     e.preventDefault()
     if (!email.trim()) { setError('Enter your email address'); return }
     setError('')
     setInfo('')
     setLoading(true)
-    const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
-      options: { shouldCreateUser: false },
-    })
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim())
     setLoading(false)
     if (error) { setError(error.message); return }
     setStep('otp')
@@ -136,7 +133,7 @@ function ForgotPassword({ onBack }) {
     const { error } = await supabase.auth.verifyOtp({
       email: email.trim(),
       token: otp.trim(),
-      type: 'email',
+      type: 'recovery',
     })
     setLoading(false)
     if (error) { setError('Invalid or expired OTP. Try again.'); return }
@@ -148,10 +145,7 @@ function ForgotPassword({ onBack }) {
     setError('')
     setInfo('')
     setLoading(true)
-    const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
-      options: { shouldCreateUser: false },
-    })
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim())
     setLoading(false)
     if (error) { setError(error.message); return }
     setInfo('OTP resent! Check your inbox.')
