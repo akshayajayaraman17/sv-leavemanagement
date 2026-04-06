@@ -11,13 +11,22 @@ const DEPTS = ['Engineering', 'HR', 'Finance', 'Sales', 'Operations', 'Marketing
 const today = new Date().toISOString().split('T')[0]
 
 // ── Add/Edit Employee Form ────────────────────────────────────────────────────
+function generateEmpCode(employees) {
+  const existing = (employees || [])
+    .map(e => e.employee_code)
+    .filter(c => /^EMP\d+$/.test(c))
+    .map(c => parseInt(c.replace('EMP', ''), 10))
+  const next = existing.length > 0 ? Math.max(...existing) + 1 : 1
+  return `EMP${String(next).padStart(3, '0')}`
+}
+
 function EmployeeForm({ initial, employees, onSave, onBack, onToast }) {
   const isEdit = !!initial?.id
   const [form, setForm] = useState({
     full_name:    initial?.full_name    || '',
     email:        initial?.email        || '',
     phone:        initial?.phone        || '',
-    employee_code:initial?.employee_code|| '',
+    employee_code:initial?.employee_code|| generateEmpCode(employees),
     department:   initial?.department   || '',
     designation:  initial?.designation  || '',
     role:         initial?.role         || 'employee',
@@ -158,7 +167,7 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast }) {
               <input value={form.full_name} onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))} style={inputStyle(errs.full_name)} placeholder="Jane Smith" />
             </Field>
             <Field label="Employee Code" error={errs.employee_code}>
-              <input value={form.employee_code} onChange={e => setForm(f => ({ ...f, employee_code: e.target.value }))} style={inputStyle(errs.employee_code)} placeholder="EMP001" />
+              <input value={form.employee_code} onChange={e => setForm(f => ({ ...f, employee_code: e.target.value }))} style={{ ...inputStyle(errs.employee_code), background: !isEdit ? C.bgSec : undefined }} placeholder="EMP001" readOnly={!isEdit} />
             </Field>
           </div>
           <Field label="Work Email" error={errs.email}>
