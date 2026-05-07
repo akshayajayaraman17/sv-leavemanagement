@@ -296,6 +296,9 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
             <div style={{ fontSize: 12, color: '#854F0B', lineHeight: 1.6 }}>
               Adjust an employee's leave entitlement. Positive numbers add days, negative numbers deduct. Changes apply immediately to their balance.
             </div>
+            <button onClick={() => setActiveTab('comp')} style={{ ...btnStyle(C.purple, '#fff'), marginTop: 12, padding: '7px 12px', fontSize: 12, borderRadius: 18 }}>
+              Credit Comp Off
+            </button>
           </div>
           {leaveTypes.filter(lt => !lt.is_comp_off).map(lt => (
             <div key={lt.code} style={{ ...card, marginBottom: 10 }}>
