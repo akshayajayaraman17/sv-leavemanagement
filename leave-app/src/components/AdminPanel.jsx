@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   fetchEmployees, createEmployee, updateEmployee, deactivateEmployee,
   fetchSalary, upsertSalary, fetchApprovers, setApprovers,
-  fetchLeaveTypes, fetchLeaveAdjustments, upsertLeaveAdjustment,
+  fetchLeaveTypes, fetchLeaveAdjustments, upsertLeaveAdjustment, grantCompOff,
 } from '../lib/api'
 import { Avatar, Badge, C, Confirm, Empty, Field, SecTitle, Spinner, btnStyle, card, inputStyle, formatDate } from './UI'
 
@@ -20,7 +20,7 @@ function generateEmpCode(employees) {
   return `EMP${String(next).padStart(3, '0')}`
 }
 
-function EmployeeForm({ initial, employees, onSave, onBack, onToast }) {
+function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBack, onToast }) {
   const isEdit = !!initial?.id
   const [form, setForm] = useState({
     full_name:    initial?.full_name    || '',
@@ -40,9 +40,13 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast }) {
   const [leaveTypes, setLeaveTypes]     = useState([])
   const [leaveAdj, setLeaveAdj]         = useState({})   // { type_code: adjustment_value }
   const [leaveReasons, setLeaveReasons] = useState({})   // { type_code: reason }
+  const [compForm, setCompForm]         = useState({ workedDate: '', workedHours: '8', earnedDays: '1', reason: '' })
+  const [compErrs, setCompErrs]         = useState({})
+  const [compSaving, setCompSaving]     = useState(false)
+  const [compDone, setCompDone]         = useState(false)
   const [errs, setErrs]                 = useState({})
   const [saving, setSaving]             = useState(false)
-  const [activeTab, setActiveTab]       = useState('details')
+  const [activeTab, setActiveTab]       = useState(initialTab)
 
   useEffect(() => {
     if (isEdit) {
@@ -61,6 +65,10 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast }) {
     setApproversState(employees.filter(e => e.id !== initial?.id))
     fetchLeaveTypes().then(({ data }) => setLeaveTypes(data || []))
   }, [initial?.id])
+
+  useEffect(() => {
+    setActiveTab(initialTab)
+  }, [initialTab])
 
   const [salForm, setSalForm] = useState({
     basic_salary: '', hra: '', transport_allowance: '',
@@ -139,6 +147,35 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast }) {
     onSave()
   }
 
+  const validateCompForm = () => {
+    const e = {}
+    if (!compForm.workedDate) e.workedDate = 'Required'
+    if (!compForm.earnedDays || parseFloat(compForm.earnedDays) <= 0) e.earnedDays = 'Required'
+    if (!compForm.workedHours || parseFloat(compForm.workedHours) <= 0) e.workedHours = 'Required'
+    if (!compForm.reason.trim()) e.reason = 'Required'
+    return e
+  }
+
+  const saveCompOff = async () => {
+    const e = validateCompForm(); if (Object.keys(e).length) { setCompErrs(e); return }
+    setCompSaving(true)
+
+    const { error } = await grantCompOff({
+      employee_id:  initial.id,
+      worked_date:  compForm.workedDate,
+      worked_hours: parseFloat(compForm.workedHours),
+      earned_days:  parseFloat(compForm.earnedDays),
+      reason:       compForm.reason,
+    })
+
+    setCompSaving(false)
+    if (error) { onToast(error.message || 'Failed to credit comp off', 'error'); return }
+
+    setCompDone(true)
+    setCompForm({ workedDate: '', workedHours: '8', earnedDays: '1', reason: '' })
+    onToast('Comp off credited successfully')
+  }
+
   const toggleApprover = (id) => setSelAppr(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])
 
   const TB = ({ id, label }) => (
@@ -157,6 +194,7 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast }) {
         <TB id="salary"    label="Salary" />
         <TB id="approvers" label="Approvers" />
         {isEdit && <TB id="leave" label="Leave" />}
+        {isEdit && <TB id="comp" label="Comp Off" />}
       </div>
 
       {/* Details tab */}
@@ -294,6 +332,43 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast }) {
           ))}
         </div>
       )}
+      {activeTab === 'comp' && isEdit && (
+        <div>
+          <div style={{ ...card, background: C.purpleBg, border: `0.5px solid #AFA9EC`, marginBottom: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: '#3C3489', marginBottom: 4 }}>Credit Comp Off</div>
+            <div style={{ fontSize: 12, color: '#534AB7', lineHeight: 1.6 }}>
+              Manually add approved comp off days for this employee. This creates an immediately approved comp off record so the balance is updated right away.
+            </div>
+          </div>
+          {compDone ? (
+            <div style={{ textAlign: 'center', padding: '28px 0' }}>
+              <div style={{ fontSize: 18, fontWeight: 500, marginBottom: 6 }}>Comp off credited</div>
+              <div style={{ fontSize: 12, color: C.textSec, marginBottom: 18 }}>The employee's comp off balance has been updated.</div>
+              <button onClick={() => setCompDone(false)} style={btnStyle(C.purple, '#fff')}>Add another</button>
+            </div>
+          ) : (
+            <>
+              <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <Field label="Worked Date" error={compErrs.workedDate}>
+                  <input type="date" value={compForm.workedDate} onChange={e => { setCompForm(f => ({ ...f, workedDate: e.target.value })); setCompErrs({}) }} style={inputStyle(compErrs.workedDate)} />
+                </Field>
+                <Field label="Hours Worked" error={compErrs.workedHours}>
+                  <input type="number" min="0" step="0.5" value={compForm.workedHours} onChange={e => { setCompForm(f => ({ ...f, workedHours: e.target.value })); setCompErrs({}) }} style={inputStyle(compErrs.workedHours)} />
+                </Field>
+              </div>
+              <Field label="Comp Off Days" error={compErrs.earnedDays}>
+                <input type="number" min="0.5" step="0.5" value={compForm.earnedDays} onChange={e => { setCompForm(f => ({ ...f, earnedDays: e.target.value })); setCompErrs({}) }} style={inputStyle(compErrs.earnedDays)} />
+              </Field>
+              <Field label="Reason" error={compErrs.reason}>
+                <textarea rows={3} value={compForm.reason} onChange={e => { setCompForm(f => ({ ...f, reason: e.target.value })); setCompErrs({}) }} style={{ ...inputStyle(compErrs.reason), resize: 'vertical' }} placeholder="Reason for crediting comp off" />
+              </Field>
+              <button onClick={saveCompOff} disabled={compSaving} style={{ ...btnStyle(C.purple, '#fff'), width: '100%', opacity: compSaving ? 0.7 : 1 }}>
+                {compSaving ? 'Saving…' : 'Credit Comp Off'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Approvers tab */}
       {activeTab === 'approvers' && (
@@ -343,6 +418,7 @@ export default function AdminPanel({ onToast }) {
   const [loading,   setLoading]   = useState(true)
   const [view,      setView]      = useState('list')   // 'list' | 'add' | 'edit'
   const [editing,   setEditing]   = useState(null)
+  const [editingTab, setEditingTab] = useState('details')
   const [confirm,   setConfirm]   = useState(null)
   const [q,         setQ]         = useState('')
 
@@ -366,6 +442,7 @@ export default function AdminPanel({ onToast }) {
     return (
       <EmployeeForm
         initial={view === 'edit' ? editing : null}
+        initialTab={view === 'edit' ? editingTab : 'details'}
         employees={employees}
         onSave={() => { setView('list'); load() }}
         onBack={() => setView('list')}
@@ -419,8 +496,9 @@ export default function AdminPanel({ onToast }) {
                     {e.is_active ? 'Active' : 'Inactive'}
                   </span>
                 </div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                  <button onClick={() => { setEditing(e); setView('edit') }} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '6px 12px', fontSize: 12 }}>Edit</button>
+                <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                  <button onClick={() => { setEditing(e); setEditingTab('details'); setView('edit') }} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '6px 12px', fontSize: 12 }}>Edit</button>
+                  <button onClick={() => { setEditing(e); setEditingTab('leave'); setView('edit') }} style={{ ...btnStyle(C.purpleBg, '#3C3489'), padding: '6px 12px', fontSize: 12 }}>Add / Remove Leaves</button>
                   {e.is_active && <button onClick={() => setConfirm(e)} style={{ ...btnStyle(C.redBg, C.red), padding: '6px 12px', fontSize: 12 }}>Deactivate</button>}
                 </div>
               </div>

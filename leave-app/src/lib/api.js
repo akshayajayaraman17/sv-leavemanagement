@@ -259,6 +259,19 @@ export const decideCompOff = async (id, status) => {
   return { data, error }
 }
 
+export const grantCompOff = async (payload) => {
+  const { data, error } = await supabase
+    .from('comp_off_requests')
+    .insert({
+      ...payload,
+      status: 'approved',
+      decided_on: new Date().toISOString(),
+    })
+    .select()
+    .single()
+  return { data, error }
+}
+
 // ─── Get effective approver for an employee ───────────────────────────────────
 export const getApproverForEmployee = async (employeeId) => {
   const { data, error } = await supabase
