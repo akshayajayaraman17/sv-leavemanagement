@@ -58,7 +58,7 @@ INSERT INTO public.employees (
   id, employee_code, full_name, email, role, joining_date
 ) VALUES (
   'PASTE-USER-UUID-HERE',
-  'ADMIN001',
+  'EMP001',
   'Your Admin Name',
   'admin@yourcompany.com',
   'admin',
