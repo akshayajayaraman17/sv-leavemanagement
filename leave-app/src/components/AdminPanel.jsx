@@ -39,7 +39,8 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
   const [approvers, setApproversState]  = useState([])
   const [selectedApprovers, setSelAppr] = useState([])
   const [leaveTypes, setLeaveTypes]     = useState([])
-  const [leaveAdj, setLeaveAdj]         = useState({})   // { type_code: adjustment_value }
+  const [leaveAdj, setLeaveAdj]         = useState({})   // { type_code: adjustment_value } — live-edited
+  const [origLeaveAdj, setOrigLeaveAdj] = useState({})   // { type_code: adjustment_value } — as last saved
   const [leaveReasons, setLeaveReasons] = useState({})   // { type_code: reason }
   const [empBalance, setEmpBalance]     = useState([])
   const [compForm, setCompForm]         = useState({ workedDate: '', workedHours: '8', earnedDays: '1', reason: '' })
@@ -67,6 +68,7 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
           reasons[row.type_code] = row.reason || ''
         }
         setLeaveAdj(adj)
+        setOrigLeaveAdj(adj)
         setLeaveReasons(reasons)
       })
     }
@@ -338,39 +340,45 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
               Credit Comp Off
             </button>
           </div>
-          {leaveTypes.filter(lt => !lt.is_comp_off).map(lt => (
-            <div key={lt.code} style={{ ...card, marginBottom: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <div style={{ width: 10, height: 10, borderRadius: '50%', background: lt.color, flexShrink: 0 }} />
-                <div style={{ fontSize: 13, fontWeight: 500 }}>{lt.label}</div>
-                <div style={{ fontSize: 11, color: C.textTert, marginLeft: 'auto' }}>Base: {lt.annual_days} days/yr</div>
-              </div>
-              <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <Field label="Adjustment (days)">
-                  <input
-                    type="number" step="0.5"
-                    value={leaveAdj[lt.code] ?? ''}
-                    onChange={e => setLeaveAdj(a => ({ ...a, [lt.code]: e.target.value }))}
-                    placeholder="e.g. +3 or -2"
-                    style={inputStyle()}
-                  />
-                </Field>
-                <Field label="Reason">
-                  <input
-                    value={leaveReasons[lt.code] || ''}
-                    onChange={e => setLeaveReasons(r => ({ ...r, [lt.code]: e.target.value }))}
-                    placeholder="Optional note"
-                    style={inputStyle()}
-                  />
-                </Field>
-              </div>
-              {leaveAdj[lt.code] && (
-                <div style={{ fontSize: 11, color: C.textSec, marginTop: 4 }}>
-                  New total: {lt.annual_days + (parseFloat(leaveAdj[lt.code]) || 0)} days
+          {leaveTypes.filter(lt => !lt.is_comp_off).map(lt => {
+            const currentTotal = empBalance.find(b => b.type_code === lt.code)?.total ?? lt.annual_days
+            const origAdj = parseFloat(origLeaveAdj[lt.code]) || 0
+            const newAdj  = parseFloat(leaveAdj[lt.code]) || 0
+            const newTotal = currentTotal - origAdj + newAdj
+            return (
+              <div key={lt.code} style={{ ...card, marginBottom: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: lt.color, flexShrink: 0 }} />
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>{lt.label}</div>
+                  <div style={{ fontSize: 11, color: C.textTert, marginLeft: 'auto' }}>Current: {currentTotal} days · Base {lt.annual_days}/yr</div>
                 </div>
-              )}
-            </div>
-          ))}
+                <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <Field label="Adjustment (days)">
+                    <input
+                      type="number" step="0.5"
+                      value={leaveAdj[lt.code] ?? ''}
+                      onChange={e => setLeaveAdj(a => ({ ...a, [lt.code]: e.target.value }))}
+                      placeholder="e.g. +3 or -2"
+                      style={inputStyle()}
+                    />
+                  </Field>
+                  <Field label="Reason">
+                    <input
+                      value={leaveReasons[lt.code] || ''}
+                      onChange={e => setLeaveReasons(r => ({ ...r, [lt.code]: e.target.value }))}
+                      placeholder="Optional note"
+                      style={inputStyle()}
+                    />
+                  </Field>
+                </div>
+                {leaveAdj[lt.code] && (
+                  <div style={{ fontSize: 11, color: C.textSec, marginTop: 4 }}>
+                    New total: {newTotal} days
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
       {activeTab === 'comp' && isEdit && (

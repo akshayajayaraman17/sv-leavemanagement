@@ -95,6 +95,18 @@ create table public.leave_requests (
   created_at   timestamptz not null default now()
 );
 
+-- Admin leave overrides — per-employee, per-type adjustment to the base entitlement
+create table public.leave_adjustments (
+  id           uuid primary key default uuid_generate_v4(),
+  employee_id  uuid not null references public.employees(id) on delete cascade,
+  type_code    text not null references public.leave_types(code),
+  adjustment   numeric(5,1) not null default 0,
+  reason       text,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now(),
+  unique(employee_id, type_code)
+);
+
 -- Comp off requests (work done on holiday → earns balance)
 create table public.comp_off_requests (
   id           uuid primary key default uuid_generate_v4(),
@@ -172,6 +184,12 @@ returns table (
       and status = 'approved'
       and extract(year from from_date) = extract(year from current_date)
     group by leave_type
+  ),
+  adj_per_type as (
+    select type_code, coalesce(sum(adjustment),0) as adj_days
+    from public.leave_adjustments
+    where employee_id = emp_id
+    group by type_code
   )
   select
     lt.code,
@@ -180,11 +198,13 @@ returns table (
     lt.bg_color,
     case when lt.is_comp_off then (select days from comp_earned)
          else public.prorated_days((select joining_date from emp), lt.annual_days)
+              + coalesce((select adj_days from adj_per_type where type_code = lt.code), 0)
     end as total,
     coalesce((select used_days from used_per_type where leave_type = lt.code), 0) as used,
     greatest(0,
       case when lt.is_comp_off then (select days from comp_earned)
            else public.prorated_days((select joining_date from emp), lt.annual_days)
+                + coalesce((select adj_days from adj_per_type where type_code = lt.code), 0)
       end
       - coalesce((select used_days from used_per_type where leave_type = lt.code), 0)
     ) as remaining
@@ -204,6 +224,8 @@ create trigger trg_salary_updated_at before update on public.salary_details
   for each row execute function public.handle_updated_at();
 create trigger trg_jira_accounts_updated_at before update on public.jira_accounts
   for each row execute function public.handle_updated_at();
+create trigger trg_leave_adjustments_updated_at before update on public.leave_adjustments
+  for each row execute function public.handle_updated_at();
 
 -- ────────────────────────────────────────────────────────────
 -- ROW LEVEL SECURITY (RLS)
@@ -215,6 +237,7 @@ alter table public.leave_requests    enable row level security;
 alter table public.comp_off_requests enable row level security;
 alter table public.leave_types       enable row level security;
 alter table public.jira_accounts     enable row level security;
+alter table public.leave_adjustments enable row level security;
 
 create policy "jira_accounts_select_own_or_admin" on public.jira_accounts for select using (
   auth.uid() = employee_id or public.is_admin()
@@ -264,6 +287,14 @@ create policy "approver_admin_write"     on public.approver_config for all using
 -- ── leave_types ──
 create policy "leave_types_read_all"     on public.leave_types for select using (true);
 create policy "leave_types_admin_write"  on public.leave_types for all using (public.is_admin());
+
+-- ── leave_adjustments ── employees can see their own override, only admins can write
+create policy "leave_adjustments_select" on public.leave_adjustments for select using (
+  employee_id = auth.uid() or public.is_admin()
+);
+create policy "leave_adjustments_admin_write" on public.leave_adjustments for insert with check (public.is_admin());
+create policy "leave_adjustments_admin_update" on public.leave_adjustments for update using (public.is_admin());
+create policy "leave_adjustments_admin_delete" on public.leave_adjustments for delete using (public.is_admin());
 
 -- ── leave_requests ──
 -- Employees see their own; managers/approvers see requests assigned to them; admins see all
