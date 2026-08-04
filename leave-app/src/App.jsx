@@ -11,12 +11,14 @@ import Attendance from './components/Attendance'
 import Timesheet from './components/Timesheet'
 import Profile from './components/Profile'
 import Team from './components/Team'
+import Notifications from './components/Notifications'
 import { Toast, C, Spinner, Avatar } from './components/UI'
 import { signOut } from './lib/api'
 
 const NAV = {
   employee: [
     { id: 'dash',       label: 'Home',       icon: '◉' },
+    { id: 'notifications', label: 'Notifications', icon: '🔔' },
     { id: 'attendance', label: 'Attendance',  icon: '⏱' },
     { id: 'timesheet',  label: 'Timesheet',   icon: '📋' },
     { id: 'apply',      label: 'Apply',       icon: '+' },
@@ -27,6 +29,7 @@ const NAV = {
   ],
   manager: [
     { id: 'dash',       label: 'Home',       icon: '◉' },
+    { id: 'notifications', label: 'Notifications', icon: '🔔' },
     { id: 'attendance', label: 'Attendance',  icon: '⏱' },
     { id: 'timesheet',  label: 'Timesheet',   icon: '📋' },
     { id: 'apply',      label: 'Apply',       icon: '+' },
@@ -39,6 +42,7 @@ const NAV = {
   ],
   admin: [
     { id: 'dash',       label: 'Home',       icon: '◉' },
+    { id: 'notifications', label: 'Notifications', icon: '🔔' },
     { id: 'attendance', label: 'Attendance',  icon: '⏱' },
     { id: 'timesheet',  label: 'Timesheet',   icon: '📋' },
     { id: 'apply',      label: 'Apply',       icon: '+' },
@@ -52,7 +56,7 @@ const NAV = {
   ],
 }
 const TITLES = {
-  dash: 'Dashboard', attendance: 'Attendance', timesheet: 'Timesheet',
+  dash: 'Dashboard', notifications: 'Notifications', attendance: 'Attendance', timesheet: 'Timesheet',
   apply: 'Apply Leave', comp: 'Request Comp Off', history: 'My Leaves',
   approvals: 'Approvals', team: 'Team', admin: 'Admin Panel', jira: 'Jira', profile: 'My Profile',
 }
@@ -140,7 +144,8 @@ export default function App() {
         {/* Page content */}
         <div className="app-content">
           <div className="content-max">
-            {tab === 'dash'       && <Dashboard    employee={employee} />}
+            {tab === 'dash'       && <Dashboard     employee={employee} />}
+            {tab === 'notifications' && <Notifications employee={employee} />}
             {tab === 'attendance' && <Attendance   employee={employee} />}
             {tab === 'timesheet'  && <Timesheet    employee={employee} onToast={showToast} />}
             {tab === 'apply'      && <ApplyLeave   employee={employee} onToast={showToast} />}
