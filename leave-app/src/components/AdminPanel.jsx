@@ -47,6 +47,11 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
   const [errs, setErrs]                 = useState({})
   const [saving, setSaving]             = useState(false)
   const [activeTab, setActiveTab]       = useState(initialTab)
+  const [adminConfirmOpen, setAdminConfirmOpen] = useState(false)
+
+  const activeOtherAdmins = employees.filter(e => e.role === 'admin' && e.is_active !== false && e.id !== initial?.id).length
+  const isGrantingAdmin = form.role === 'admin' && (!isEdit || initial.role !== 'admin')
+  const isLastAdminDemotion = isEdit && initial?.role === 'admin' && form.role !== 'admin' && activeOtherAdmins === 0
 
   useEffect(() => {
     if (isEdit) {
@@ -96,8 +101,14 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
     return e
   }
 
-  const save = async () => {
+  const handleSaveClick = () => {
     const e = validate(); if (Object.keys(e).length) { setErrs(e); return }
+    if (isLastAdminDemotion) { onToast('Cannot change role — at least one active admin must remain', 'error'); return }
+    if (isGrantingAdmin) { setAdminConfirmOpen(true); return }
+    save()
+  }
+
+  const save = async () => {
     setSaving(true)
     let empId = initial?.id
 
@@ -407,10 +418,18 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
       )}
 
       <div style={{ marginTop: 20 }}>
-        <button onClick={save} disabled={saving} style={{ ...btnStyle(C.green, '#fff'), width: '100%', opacity: saving ? 0.7 : 1 }}>
+        <button onClick={handleSaveClick} disabled={saving} style={{ ...btnStyle(C.green, '#fff'), width: '100%', opacity: saving ? 0.7 : 1 }}>
           {saving ? 'Saving…' : isEdit ? 'Update Employee' : 'Add Employee'}
         </button>
       </div>
+
+      {adminConfirmOpen && (
+        <Confirm
+          msg={`Grant admin access to ${form.full_name || 'this user'}? They will have full access to employee records, salaries, and settings.`}
+          onYes={() => { setAdminConfirmOpen(false); save() }}
+          onNo={() => setAdminConfirmOpen(false)}
+        />
+      )}
     </div>
   )
 }
@@ -432,6 +451,15 @@ export default function AdminPanel({ onToast }) {
   useEffect(load, [])
 
   const handleDeactivate = async (id) => {
+    const target = employees.find(e => e.id === id)
+    if (target?.role === 'admin') {
+      const otherActiveAdmins = employees.filter(e => e.role === 'admin' && e.is_active !== false && e.id !== id).length
+      if (otherActiveAdmins === 0) {
+        onToast('Cannot deactivate — at least one active admin must remain', 'error')
+        setConfirm(null)
+        return
+      }
+    }
     const { error } = await deactivateEmployee(id)
     if (error) { onToast(error.message, 'error'); return }
     onToast('Employee deactivated')
