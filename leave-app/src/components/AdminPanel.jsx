@@ -3,6 +3,7 @@ import {
   fetchEmployees, createEmployee, updateEmployee, deactivateEmployee,
   fetchSalary, upsertSalary, fetchApprovers, setApprovers,
   fetchLeaveTypes, fetchLeaveAdjustments, upsertLeaveAdjustment, grantCompOff,
+  fetchLeaveBalance,
 } from '../lib/api'
 import { Avatar, Badge, C, Confirm, Empty, Field, SecTitle, Spinner, btnStyle, card, inputStyle, formatDate } from './UI'
 
@@ -40,6 +41,7 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
   const [leaveTypes, setLeaveTypes]     = useState([])
   const [leaveAdj, setLeaveAdj]         = useState({})   // { type_code: adjustment_value }
   const [leaveReasons, setLeaveReasons] = useState({})   // { type_code: reason }
+  const [empBalance, setEmpBalance]     = useState([])
   const [compForm, setCompForm]         = useState({ workedDate: '', workedHours: '8', earnedDays: '1', reason: '' })
   const [compErrs, setCompErrs]         = useState({})
   const [compSaving, setCompSaving]     = useState(false)
@@ -57,6 +59,7 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
     if (isEdit) {
       fetchSalary(initial.id).then(({ data }) => setSalary(data || {}))
       fetchApprovers(initial.id).then(({ data }) => setSelAppr((data || []).map(a => a.approver_id)))
+      fetchLeaveBalance(initial.id).then(({ data }) => setEmpBalance(data || []))
       fetchLeaveAdjustments(initial.id).then(({ data }) => {
         const adj = {}, reasons = {}
         for (const row of (data || [])) {
@@ -302,6 +305,30 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
       {/* Leave adjustments tab */}
       {activeTab === 'leave' && (
         <div>
+          {empBalance.length > 0 && (
+            <>
+              <SecTitle>Current Leave Balance — {new Date().getFullYear()}</SecTitle>
+              <div className="balance-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+                {empBalance.map(b => {
+                  const pct = b.total > 0 ? Math.round((b.used / b.total) * 100) : 0
+                  return (
+                    <div key={b.type_code} style={card}>
+                      <div style={{ fontSize: 11, color: C.textSec, marginBottom: 4 }}>{b.label}</div>
+                      <div style={{ fontSize: 28, fontWeight: 500, color: b.color, lineHeight: 1 }}>{b.remaining}</div>
+                      <div style={{ fontSize: 10, color: C.textTert, marginBottom: 9 }}>of {b.total} remaining</div>
+                      <div style={{ background: C.bgSec, borderRadius: 4, height: 3 }}>
+                        <div style={{ width: `${pct}%`, height: '100%', background: b.color, borderRadius: 4 }} />
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5 }}>
+                        <span style={{ fontSize: 10, color: C.textTert }}>{b.used} used</span>
+                        {b.type_code === 'comp' && <span style={{ fontSize: 10, color: b.color }}>{b.total} earned</span>}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
           <div style={{ ...card, background: C.amberBg, border: `0.5px solid #E8C97A`, marginBottom: 16 }}>
             <div style={{ fontSize: 13, fontWeight: 500, color: '#854F0B', marginBottom: 4 }}>Admin leave override</div>
             <div style={{ fontSize: 12, color: '#854F0B', lineHeight: 1.6 }}>
