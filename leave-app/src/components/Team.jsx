@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   fetchEmployees, fetchLeaveBalance, fetchMyLeaves,
   fetchTimesheetHistory, fetchTimesheetEntries, fetchSalary,
-  fetchAttendanceHistory,
+  fetchAttendanceHistory, getMedicalCertificateUrl,
 } from '../lib/api'
 import { Avatar, Badge, C, Empty, SecTitle, Spinner, card, formatDate, inputStyle, btnStyle } from './UI'
 
@@ -16,7 +16,7 @@ const TS_STATUS_COLOR = {
 }
 
 // ── Tab button ────────────────────────────────────────────────────────────────
-function TB({ id, active, label, onClick }) {
+function TB({ active, label, onClick }) {
   return (
     <button onClick={onClick} style={{
       padding: '7px 16px', fontSize: 12, fontWeight: 500, borderRadius: 20,
@@ -33,7 +33,7 @@ function formatTime(ts) {
 }
 
 // ── Employee detail view ──────────────────────────────────────────────────────
-function EmployeeDetail({ emp, viewerRole, allEmployees, onBack }) {
+function EmployeeDetail({ emp, viewerRole, allEmployees, onBack, onToast }) {
   const [tab,        setTab]       = useState('profile')
   const [balances,   setBalances]  = useState([])
   const [leaves,     setLeaves]    = useState([])
@@ -68,6 +68,12 @@ function EmployeeDetail({ emp, viewerRole, allEmployees, onBack }) {
   }
 
   const manager = allEmployees.find(e => e.id === emp.manager_id)
+
+  const viewCertificate = async (value) => {
+    const { url, error } = await getMedicalCertificateUrl(value)
+    if (error || !url) { onToast?.('Failed to load certificate', 'error'); return }
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
 
   return (
     <div>
@@ -151,10 +157,11 @@ function EmployeeDetail({ emp, viewerRole, allEmployees, onBack }) {
                   </div>
                   <div style={{ fontSize: 12, color: C.textTert }}>{l.reason}</div>
                   {l.medical_certificate_url && (
-                    <a href={l.medical_certificate_url} target="_blank" rel="noreferrer"
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.blue, marginTop: 5 }}>
+                    <button
+                      onClick={() => viewCertificate(l.medical_certificate_url)}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.blue, marginTop: 5, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline' }}>
                       📎 Medical certificate
-                    </a>
+                    </button>
                   )}
                   {l.reject_reason && (
                     <div style={{ fontSize: 11, color: C.red, marginTop: 5, background: C.redBg, padding: '4px 8px', borderRadius: 6 }}>
@@ -315,7 +322,7 @@ function EmployeeDetail({ emp, viewerRole, allEmployees, onBack }) {
 }
 
 // ── Team list view ────────────────────────────────────────────────────────────
-export default function Team({ viewer }) {
+export default function Team({ viewer, onToast }) {
   const [employees, setEmployees] = useState([])
   const [loading,   setLoading]   = useState(true)
   const [q,         setQ]         = useState('')
@@ -336,6 +343,7 @@ export default function Team({ viewer }) {
         viewerRole={viewer.role}
         allEmployees={employees}
         onBack={() => setSelected(null)}
+        onToast={onToast}
       />
     )
   }

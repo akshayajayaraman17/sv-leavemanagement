@@ -1,11 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
-import { fetchLeaveBalance, fetchEmployees, applyLeave, applyCompOff, getApproverForEmployee, uploadMedicalCertificate, fetchMyCompRequests } from '../lib/api'
+import { fetchLeaveBalance, fetchEmployees, applyLeave, applyCompOff, getApproverForEmployee, uploadMedicalCertificate, fetchMyCompRequests, fetchHolidays } from '../lib/api'
 import { supabase } from '../lib/supabase'
-import { Avatar, Badge, C, Field, SecTitle, Spinner, btnStyle, card, inputStyle, formatDate } from './UI'
+import { Avatar, C, Field, Spinner, btnStyle, card, inputStyle } from './UI'
 
-function workingDays(from, to) {
+function workingDays(from, to, holidaySet = new Set()) {
   let count = 0, d = new Date(from), end = new Date(to)
-  while (d <= end) { const w = d.getDay(); if (w !== 0 && w !== 6) count++; d.setDate(d.getDate() + 1) }
+  while (d <= end) {
+    const w = d.getDay()
+    const dateStr = d.toISOString().split('T')[0]
+    if (w !== 0 && w !== 6 && !holidaySet.has(dateStr)) count++
+    d.setDate(d.getDate() + 1)
+  }
   return count
 }
 const today = new Date().toISOString().split('T')[0]
@@ -13,8 +18,8 @@ const today = new Date().toISOString().split('T')[0]
 // ── Apply Leave ────────────────────────────────────────────────────────────────
 export function ApplyLeave({ employee, onToast }) {
   const [balances,  setBalances]  = useState([])
-  const [employees, setEmployees] = useState([])
   const [approver,  setApprover]  = useState(null)
+  const [holidays,  setHolidays]  = useState(new Set())
   const [form,      setForm]      = useState({ type: 'annual', from: '', to: '', reason: '', half: false })
   const [certificate, setCertificate] = useState(null)
   const [errs,      setErrs]      = useState({})
@@ -27,19 +32,20 @@ export function ApplyLeave({ employee, onToast }) {
       fetchLeaveBalance(employee.id),
       fetchEmployees(),
       getApproverForEmployee(employee.id),
-    ]).then(([b, e, a]) => {
+      fetchHolidays(),
+    ]).then(([b, e, a, h]) => {
       setBalances(b.data || [])
-      setEmployees(e.data || [])
       const apprId = a.data
       if (apprId) setApprover((e.data || []).find(x => x.id === apprId) || null)
+      setHolidays(new Set((h.data || []).map(x => x.holiday_date)))
     }).finally(() => setLoading(false))
   }, [employee.id])
 
   const bal = balances.find(b => b.type_code === form.type)
   const days = useMemo(() => {
     if (!form.from || !form.to || new Date(form.to) < new Date(form.from)) return 0
-    return form.half ? 0.5 : workingDays(form.from, form.to)
-  }, [form.from, form.to, form.half])
+    return form.half ? 0.5 : workingDays(form.from, form.to, holidays)
+  }, [form.from, form.to, form.half, holidays])
 
   const isSick = form.type === 'sick'
 
@@ -76,7 +82,13 @@ export function ApplyLeave({ employee, onToast }) {
       medical_certificate_url:  certUrl,
     })
     setSubmitting(false)
-    if (error) { onToast(error.message, 'error'); return }
+    if (error) {
+      const msg = error.message?.includes('no_overlapping_leave')
+        ? 'You already have a pending or approved leave request that overlaps with these dates'
+        : error.message
+      onToast(msg, 'error')
+      return
+    }
     setDone(true)
   }
 
@@ -179,9 +191,9 @@ export function ApplyLeave({ employee, onToast }) {
 
 // ── Apply Comp Off ─────────────────────────────────────────────────────────────
 export function ApplyCompOff({ employee, onToast }) {
-  const [employees,  setEmployees]  = useState([])
   const [approver,   setApprover]   = useState(null)
   const [existingReqs, setExisting] = useState([])
+  const [holidays,   setHolidays]   = useState(new Set())
   const [form,       setForm]       = useState({ workedDate: '', availDate: '', reason: '' })
   const [attendance, setAttendance] = useState(null)   // attendance record for selected date
   const [attLoading, setAttLoading] = useState(false)
@@ -196,11 +208,12 @@ export function ApplyCompOff({ employee, onToast }) {
       fetchEmployees(),
       getApproverForEmployee(employee.id),
       fetchMyCompRequests(employee.id),
-    ]).then(([e, a, cr]) => {
-      setEmployees(e.data || [])
+      fetchHolidays(),
+    ]).then(([e, a, cr, h]) => {
       setExisting(cr.data || [])
       const apprId = a.data
       if (apprId) setApprover((e.data || []).find(x => x.id === apprId) || null)
+      setHolidays(new Set((h.data || []).map(x => x.holiday_date)))
     }).finally(() => setLoading(false))
   }, [employee.id])
 
@@ -219,10 +232,11 @@ export function ApplyCompOff({ employee, onToast }) {
         return
       }
 
-      // Check if date is a weekend (Sat/Sun)
+      // Check if date is a weekend or a company holiday
       const d = new Date(form.workedDate + 'T12:00:00')
       const dayOfWeek = d.getDay()
-      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
+      if (!isWeekend && !holidays.has(form.workedDate)) {
         setAttError('Comp-off is only for work done on weekends or holidays')
         setAttLoading(false)
         return
@@ -274,7 +288,7 @@ export function ApplyCompOff({ employee, onToast }) {
       setAttLoading(false)
     }
     validateDate()
-  }, [form.workedDate])
+  }, [form.workedDate, holidays])
 
   const earnedDays = attendance ? (attendance.total_hours >= 8 ? 1 : 0) : 0
 

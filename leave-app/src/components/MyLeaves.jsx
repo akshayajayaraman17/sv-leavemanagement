@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { fetchMyLeaves, fetchMyCompRequests } from '../lib/api'
-import { Badge, C, Empty, SecTitle, Spinner, card, formatDate } from './UI'
+import { fetchMyLeaves, fetchMyCompRequests, getMedicalCertificateUrl } from '../lib/api'
+import { Badge, C, Empty, Spinner, card, formatDate } from './UI'
 
-export default function MyLeaves({ employee }) {
+export default function MyLeaves({ employee, onToast }) {
   const [tab,      setTab]      = useState('leaves')
   const [leaves,   setLeaves]   = useState([])
   const [comps,    setComps]    = useState([])
@@ -19,6 +19,12 @@ export default function MyLeaves({ employee }) {
   }, [employee.id])
 
   if (loading) return <Spinner />
+
+  const viewCertificate = async (value) => {
+    const { url, error } = await getMedicalCertificateUrl(value)
+    if (error || !url) { onToast?.('Failed to load certificate', 'error'); return }
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
 
   const TB = ({ id, label }) => (
     <button onClick={() => setTab(id)} style={{
@@ -49,10 +55,11 @@ export default function MyLeaves({ employee }) {
             </div>
             <div style={{ fontSize: 12, color: C.textTert }}>{l.reason}</div>
             {l.medical_certificate_url && (
-              <a href={l.medical_certificate_url} target="_blank" rel="noreferrer"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.blue, marginTop: 6 }}>
+              <button
+                onClick={() => viewCertificate(l.medical_certificate_url)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.blue, marginTop: 6, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline' }}>
                 📎 View medical certificate
-              </a>
+              </button>
             )}
             {l.reject_reason && (
               <div style={{ fontSize: 11, color: C.red, marginTop: 6, background: C.redBg, padding: '5px 8px', borderRadius: 6 }}>

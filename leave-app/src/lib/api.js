@@ -26,33 +26,15 @@ export const fetchEmployee = async (id) => {
   return { data, error }
 }
 
-// Admin: create employee — sign up auth user + insert employee record
-// Uses a separate Supabase client for signUp so admin session is preserved
+// Admin: create employee — delegates to the create-employee Edge Function,
+// which verifies the caller is an admin and uses the service_role key to
+// create the auth user + employee record atomically (rolling back the auth
+// user if the employee insert fails).
 export const createEmployee = async (payload) => {
-  const { createClient } = await import('@supabase/supabase-js')
-  const tempClient = createClient(
-    import.meta.env.VITE_SUPABASE_URL,
-    import.meta.env.VITE_SUPABASE_ANON_KEY,
-    { auth: { persistSession: false, autoRefreshToken: false } }
-  )
-
-  // 1. Create auth user via signUp (no session stored due to persistSession: false)
-  const { data: authData, error: authErr } = await tempClient.auth.signUp({
-    email: payload.email,
-    password: payload.password,
-  })
-
-  if (authErr) return { data: null, error: authErr.message }
-  if (!authData.user) return { data: null, error: 'Failed to create user account' }
-
-  const newUserId = authData.user.id
-
-  // 2. Insert employee record (using admin's session client)
-  const { data: emp, error: empErr } = await supabase
-    .from('employees')
-    .insert({
-      id: newUserId,
+  const { data, error } = await supabase.functions.invoke('create-employee', {
+    body: {
       email: payload.email,
+      password: payload.password,
       full_name: payload.full_name,
       employee_code: payload.employee_code,
       phone: payload.phone || null,
@@ -61,16 +43,22 @@ export const createEmployee = async (payload) => {
       role: payload.role || 'employee',
       joining_date: payload.joining_date,
       manager_id: payload.manager_id || null,
-    })
-    .select()
-    .single()
+    },
+  })
 
-  if (empErr) {
-    // Rollback: can't delete auth user without service role, but employee insert failed
-    return { data: null, error: empErr.message }
+  if (error) {
+    let message = error.message || 'Failed to create employee'
+    if (typeof error.context?.json === 'function') {
+      try {
+        const body = await error.context.json()
+        if (body?.error) message = body.error
+      } catch { /* response body wasn't JSON — fall back to error.message */ }
+    }
+    return { data: null, error: message }
   }
+  if (data?.error) return { data: null, error: data.error }
 
-  return { data: { id: newUserId, ...emp }, error: null }
+  return { data, error: null }
 }
 
 export const updateEmployee = async (id, updates) => {
@@ -191,6 +179,15 @@ export const fetchMyLeaves = async (employeeId) => {
   return { data, error }
 }
 
+// Admin-only (relies on the leave_requests_read RLS policy's is_admin() clause)
+export const fetchAllLeaveRequests = async () => {
+  const { data, error } = await supabase
+    .from('leave_requests')
+    .select('*, employee:employee_id(full_name, employee_code, department)')
+    .order('applied_on', { ascending: false })
+  return { data, error }
+}
+
 export const fetchPendingForApprover = async (approverId) => {
   const { data, error } = await supabase
     .from('leave_requests')
@@ -210,6 +207,15 @@ export const applyLeave = async (payload) => {
   return { data, error }
 }
 
+// Best-effort decision-email notification — fire-and-forget, never blocks
+// or fails the caller's approve/reject flow (the DB update already
+// succeeded by the time this is called; email delivery is a side effect).
+const notifyDecision = (table, id) => {
+  supabase.functions.invoke('send-notification', { body: { table, recordId: id } })
+    .then(({ error }) => { if (error) console.error('Notification failed:', error) })
+    .catch(err => console.error('Notification failed:', err))
+}
+
 export const decideLeave = async (id, status, rejectReason = null) => {
   const { data, error } = await supabase
     .from('leave_requests')
@@ -217,6 +223,7 @@ export const decideLeave = async (id, status, rejectReason = null) => {
     .eq('id', id)
     .select()
     .single()
+  if (!error) notifyDecision('leave_requests', id)
   return { data, error }
 }
 
@@ -256,6 +263,7 @@ export const decideCompOff = async (id, status) => {
     .eq('id', id)
     .select()
     .single()
+  if (!error) notifyDecision('comp_off_requests', id)
   return { data, error }
 }
 
@@ -386,6 +394,7 @@ export const decideRegularization = async (id, status, rejectReason = null) => {
     .eq('id', id)
     .select()
     .single()
+  if (!error) notifyDecision('attendance_regularizations', id)
   return { data, error }
 }
 
@@ -472,6 +481,7 @@ export const decideTimesheet = async (id, status, rejectReason = null) => {
     .eq('id', id)
     .select()
     .single()
+  if (!error) notifyDecision('timesheets', id)
   return { data, error }
 }
 
@@ -514,6 +524,49 @@ export const fetchLeaveTypes = async () => {
   return { data, error }
 }
 
+// ─── Team calendar ─────────────────────────────────────────────────────────────
+export const fetchTeamCalendar = async (fromDate, toDate) => {
+  const { data, error } = await supabase
+    .rpc('get_team_calendar', { p_from: fromDate, p_to: toDate })
+  return { data, error }
+}
+
+// ─── Audit log (admin) ─────────────────────────────────────────────────────────
+export const fetchAuditLog = async (limit = 100) => {
+  const { data, error } = await supabase
+    .from('audit_log')
+    .select('*, actor:actor_id(full_name, avatar_initials)')
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  return { data, error }
+}
+
+// ─── Company holidays ──────────────────────────────────────────────────────────
+export const fetchHolidays = async () => {
+  const { data, error } = await supabase
+    .from('company_holidays')
+    .select('*')
+    .order('holiday_date')
+  return { data, error }
+}
+
+export const createHoliday = async (payload) => {
+  const { data, error } = await supabase
+    .from('company_holidays')
+    .insert(payload)
+    .select()
+    .single()
+  return { data, error }
+}
+
+export const deleteHoliday = async (id) => {
+  const { error } = await supabase
+    .from('company_holidays')
+    .delete()
+    .eq('id', id)
+  return { error }
+}
+
 // ─── Leave adjustments (admin) ────────────────────────────────────────────────
 export const fetchLeaveAdjustments = async (employeeId) => {
   const { data, error } = await supabase
@@ -533,6 +586,8 @@ export const upsertLeaveAdjustment = async (payload) => {
 }
 
 // ─── Medical certificate upload ───────────────────────────────────────────────
+// The bucket is private — we store the storage path (not a public URL) and
+// mint short-lived signed URLs on demand for viewing.
 export const uploadMedicalCertificate = async (employeeId, file) => {
   const ext  = file.name.split('.').pop()
   const path = `${employeeId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
@@ -540,8 +595,18 @@ export const uploadMedicalCertificate = async (employeeId, file) => {
     .from('medical-certificates')
     .upload(path, file, { upsert: false })
   if (error) return { url: null, error }
-  const { data: { publicUrl } } = supabase.storage
+  return { url: path, error: null }
+}
+
+// Accepts either a bare storage path (new records) or a legacy full public
+// URL (records uploaded before the bucket was made private) and returns a
+// signed URL valid for 60 seconds.
+export const getMedicalCertificateUrl = async (value) => {
+  if (!value) return { url: null, error: null }
+  const marker = '/medical-certificates/'
+  const path = value.includes(marker) ? value.split(marker)[1] : value
+  const { data, error } = await supabase.storage
     .from('medical-certificates')
-    .getPublicUrl(path)
-  return { url: publicUrl, error: null }
+    .createSignedUrl(path, 60)
+  return { url: data?.signedUrl || null, error }
 }

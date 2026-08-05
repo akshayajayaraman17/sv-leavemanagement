@@ -145,7 +145,7 @@ function EntryForm({ date, timesheetId, employeeId, jiraConnected, attHours, day
 }
 
 // ── Late Submission Request ───────────────────────────────────────────────────
-function LateRequestForm({ timesheet, employee, onSubmit, onCancel }) {
+function LateRequestForm({ timesheet, onSubmit, onCancel }) {
   const [reason, setReason] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -377,7 +377,6 @@ export default function Timesheet({ employee, onToast }) {
       {showLateReq && (
         <LateRequestForm
           timesheet={timesheet}
-          employee={employee}
           onSubmit={() => { setShowLateReq(false); load(); onToast('Late submission request sent') }}
           onCancel={() => setShowLateReq(false)}
         />
@@ -418,7 +417,6 @@ export default function Timesheet({ employee, onToast }) {
         const att        = attMap[date]
         const attHours   = att?.total_hours || 0
         const hasAttendance = !!att?.check_in_time
-        const isComplete = hasAttendance && !!att?.check_out_time
         const isPast     = date < today
         const isFuture   = date > today
         const isToday    = date === today
