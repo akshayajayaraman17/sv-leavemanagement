@@ -23,10 +23,14 @@ Run each of these files, in order, in the Supabase **SQL Editor** (New query →
 5. `supabase/migration-indexes-and-constraints.sql` — query indexes + a constraint preventing overlapping leave requests
 6. `supabase/migration-holidays-and-escalation.sql` — company holidays table + approver fallback when an approver is deactivated
 7. `supabase/migration-enhancements.sql` — team calendar RPC + admin audit trail
+8. `supabase/migration-leave-cancellation.sql` — lets an employee cancel their own pending/not-yet-started-approved leave request
+9. `supabase/migration-self-service-profile.sql` — adds `employees.address` (Profile's address field previously had nowhere to save), a self-update RLS policy + column-restricting trigger (employees could not previously update even their own phone/address), and `must_change_password` for the forced password-change flow
 
-All seven are idempotent (`if not exists` / `create or replace` / `drop policy if exists`), so re-running any of them is safe. You should see "Success. No rows returned" after each.
+All nine are idempotent (`if not exists` / `create or replace` / `drop policy if exists`), so re-running any of them is safe. You should see "Success. No rows returned" after each.
 
 **Note on file 5:** the overlap constraint will fail to create if any employee already has two overlapping pending/approved leave requests in the table — Postgres reports the exact conflicting rows in the error if so. Resolve those first, then re-run.
+
+**Important on file 9 + the create-employee Edge Function:** `must_change_password` is only ever set to `true` by the `create-employee` Edge Function (updated this session) — running the SQL migration alone is not enough. You must also **redeploy** `create-employee` (see Step 4) for newly created employees to actually be flagged. Existing employees are unaffected either way (the column defaults to `false`).
 
 **Storage bucket:** `migration-security-hardening.sql` creates the `medical-certificates` bucket as private. If you previously created it manually as a public bucket, the migration flips it to private and installs RLS policies — any old public certificate links will stop working (the app now generates short-lived signed URLs on demand instead).
 
@@ -163,19 +167,20 @@ The app is an installable PWA — useful mainly for the Attendance check-in/chec
 1. Log in as admin
 2. Go to **Admin tab** → **Add Employee**
 3. Fill in details across the tabs: Details / Salary / Approvers / Leave / Comp Off
-4. There's no self-serve signup or email invite — the admin sets (or, for bulk add, the system generates) the employee's initial password directly; share it with them out of band and they can change it themselves under Profile once logged in
-5. **Bulk Add** (next to Add Employee) — upload a CSV of new hires (template provided in the UI); a random temporary password is generated per employee and shown/exportable once, immediately after creation
+4. There's no self-serve signup or email invite — the admin sets (or, for bulk add, chooses/generates) the employee's initial password directly and shares it with them out of band. Every employee created this way must set their own password the moment they first log in (see below) before they can use the app
+5. **Bulk Add** (next to Add Employee) — upload a CSV of new hires (template provided in the UI). Choose either a random password per employee (recommended — shown/exportable once after creation) or one shared password for the whole batch; either way, each employee is forced to replace it on first login
 6. **Holidays** tab (within Admin) — add company holidays; these are excluded from leave-day counts and count toward comp-off eligibility
 7. **Audit Log** tab (within Admin) — history of salary changes, leave adjustments, and role changes
 8. **Export** tab (within Admin) — CSV export of the employee roster, all leave requests, or attendance
 9. From an employee's **Salary** tab, **Print / Download Payslip** opens a print-ready payslip (use the browser's "Save as PDF")
 
 ### Employee workflow
-1. Employee logs in
-2. Dashboard shows their pro-rated leave balance for the year
-3. **Apply** tab → submit leave request
-4. **Comp Off** tab → submit comp off for holiday work
-5. **History** tab → track all requests
+1. Employee logs in with the credentials the admin gave them
+2. If the admin set/generated that password (always true for admin-created accounts), they land on a **required "Set a new password"** screen first — the app is otherwise unusable until they replace it
+3. Dashboard shows their pro-rated leave balance for the year
+4. **Apply** tab → submit leave request
+5. **Comp Off** tab → submit comp off for holiday work
+6. **History** tab → track all requests, including self-cancelling a pending or not-yet-started approved one
 
 ### Manager/Approver workflow
 1. Log in as manager
@@ -250,3 +255,4 @@ leave-app/
 - **Audit trail** — salary changes, leave-balance adjustments, and role changes are logged to `audit_log` (admin-read-only) by `SECURITY DEFINER` triggers; rows can't be inserted directly by client code
 - **Team calendar** exposes only name/leave-type/dates for *approved* leave via a narrow `SECURITY DEFINER` function — it never has access to `reason`, `reject_reason`, or medical certificate links, regardless of caller
 - **send-notification** builds every email server-side from a record the caller's own JWT can already see (RLS still applies) — the client can only say *which* existing record to notify about, never supply arbitrary recipient addresses or message content
+- **Forced password change** — any employee created by an admin (single-add or bulk-add, random or shared password) has `must_change_password = true` and cannot use the app until they set their own password. A bare `id = auth.uid()` self-update RLS policy on `employees` would let an employee push a change to *any* column on their own row (including `role`); a trigger restricts a non-admin self-update to only `phone`, `address`, and `must_change_password`

@@ -67,6 +67,10 @@ serve(async (req) => {
         role: role || "employee",
         joining_date,
         manager_id: manager_id || null,
+        // The admin set (or, for bulk import, chose/generated) this
+        // password directly, so it's known outside the employee's own
+        // head — force them to set their own on first login.
+        must_change_password: true,
       })
       .select()
       .single();

@@ -235,7 +235,7 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
             <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} style={inputStyle(errs.email)} placeholder="jane@company.com" disabled={isEdit} />
           </Field>
           {!isEdit && (
-            <Field label="Temporary Password" error={errs.password}>
+            <Field label="Temporary Password" error={errs.password} hint="They'll be required to set their own password on first login.">
               <input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} style={inputStyle(errs.password)} placeholder="Min 8 characters" />
             </Field>
           )}

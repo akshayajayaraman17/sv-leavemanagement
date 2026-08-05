@@ -13,6 +13,7 @@ import Profile from './components/Profile'
 import Team from './components/Team'
 import Notifications from './components/Notifications'
 import Calendar from './components/Calendar'
+import ForcePasswordChange from './components/ForcePasswordChange'
 import ErrorBoundary from './components/ErrorBoundary'
 import { Toast, C, Spinner, Avatar } from './components/UI'
 import { signOut } from './lib/api'
@@ -83,6 +84,8 @@ export default function App() {
   )
 
   if (!employee) return <Login />
+
+  if (employee.must_change_password) return <ForcePasswordChange employee={employee} />
 
   const tabs = NAV[employee.role] || NAV.employee
 

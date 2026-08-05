@@ -26,6 +26,8 @@ create table public.employees (
     upper(left(split_part(full_name,' ',1),1) || left(split_part(full_name,' ',2),1))
   ) stored,
   is_active       boolean not null default true,
+  address         text,
+  must_change_password boolean not null default false,
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now()
 );
@@ -400,6 +402,36 @@ create policy "employees_read_all"       on public.employees for select using (t
 create policy "employees_admin_insert"   on public.employees for insert with check (public.is_admin());
 create policy "employees_admin_update"   on public.employees for update using (public.is_admin());
 create policy "employees_admin_delete"   on public.employees for delete using (public.is_admin());
+-- Employees may also reach (and, per the trigger below, only touch a
+-- narrow set of fields on) their own row.
+create policy "employees_update_own"     on public.employees for update using (id = auth.uid());
+
+-- A bare "id = auth.uid()" policy has no column-level granularity on its
+-- own — this trigger restricts a non-admin self-update to exactly the
+-- fields Profile.jsx and the forced password-change flow need to touch.
+create or replace function public.enforce_employee_self_update()
+returns trigger language plpgsql as $$
+begin
+  if auth.uid() = old.id and not public.is_admin() then
+    if new.employee_code is distinct from old.employee_code
+       or new.full_name     is distinct from old.full_name
+       or new.email          is distinct from old.email
+       or new.department     is distinct from old.department
+       or new.designation    is distinct from old.designation
+       or new.role            is distinct from old.role
+       or new.joining_date    is distinct from old.joining_date
+       or new.manager_id      is distinct from old.manager_id
+       or new.is_active       is distinct from old.is_active
+    then
+      raise exception 'You can only update your own phone, address, and password-change status';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+create trigger trg_enforce_employee_self_update before update on public.employees
+  for each row execute function public.enforce_employee_self_update();
 
 -- ── salary_details — ADMIN ONLY ──
 create policy "salary_admin_only"        on public.salary_details for all using (public.is_admin());

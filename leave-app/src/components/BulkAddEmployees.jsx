@@ -3,7 +3,7 @@ import { createEmployee } from '../lib/api'
 import { parseCsv, rowsToCsv, downloadCsv } from '../lib/csv'
 import { generateTempPassword } from '../lib/password'
 import { generateEmpCode } from '../lib/employeeCode'
-import { C, btnStyle, card } from './UI'
+import { C, btnStyle, card, inputStyle } from './UI'
 
 const VALID_ROLES = ['admin', 'manager', 'employee']
 const today = new Date().toISOString().split('T')[0]
@@ -98,6 +98,8 @@ export default function BulkAddEmployees({ employees, onBack, onDone, onToast })
   const [creating,   setCreating]  = useState(false)
   const [progress,   setProgress]  = useState({ done: 0, total: 0 })
   const [results,    setResults]   = useState([])
+  const [passwordMode,   setPasswordMode]   = useState('random') // 'random' | 'shared'
+  const [sharedPassword, setSharedPassword] = useState('Sv@123456')
 
   const handleFile = async (file) => {
     if (!file) return
@@ -113,13 +115,15 @@ export default function BulkAddEmployees({ employees, onBack, onDone, onToast })
   }
 
   const readyRows = rows.filter(r => r.errors.length === 0)
+  const sharedPasswordValid = sharedPassword.trim().length >= 8
+  const canCreate = readyRows.length > 0 && (passwordMode === 'random' || sharedPasswordValid)
 
   const doCreate = async () => {
     setCreating(true)
     setProgress({ done: 0, total: readyRows.length })
     const out = []
     for (const row of readyRows) {
-      const tempPassword = generateTempPassword()
+      const tempPassword = passwordMode === 'shared' ? sharedPassword.trim() : generateTempPassword()
       const { error } = await createEmployee({
         email: row.email,
         password: tempPassword,
@@ -170,8 +174,9 @@ export default function BulkAddEmployees({ employees, onBack, onDone, onToast })
             <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>How it works</div>
             <div style={{ fontSize: 12, color: C.textSec, lineHeight: 1.6 }}>
               Upload a CSV of new hires. Only <strong>full_name</strong> and <strong>email</strong> are required —
-              employee code auto-generates if left blank, and role/joining date default sensibly. A random
-              temporary password is generated per employee; you'll see and can export them after creation.
+              employee code auto-generates if left blank, and role/joining date default sensibly. You'll choose a
+              random-per-employee or shared initial password on the next screen, and see/export it after creation.
+              Everyone created here is required to set their own password on first login.
               A manager must already exist in the system — reference them by employee code.
             </div>
           </div>
@@ -252,6 +257,35 @@ export default function BulkAddEmployees({ employees, onBack, onDone, onToast })
             </div>
           </div>
 
+          <div style={{ ...card, marginBottom: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>Initial password</div>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 10, cursor: 'pointer' }}>
+              <input type="radio" checked={passwordMode === 'random'} onChange={() => setPasswordMode('random')} style={{ marginTop: 3 }} />
+              <div>
+                <div style={{ fontSize: 13 }}>Random per employee <span style={{ color: C.textTert, fontWeight: 400 }}>(recommended)</span></div>
+                <div style={{ fontSize: 11, color: C.textTert }}>Each employee gets their own generated password — no shared secret.</div>
+              </div>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
+              <input type="radio" checked={passwordMode === 'shared'} onChange={() => setPasswordMode('shared')} style={{ marginTop: 3 }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13 }}>Same password for everyone</div>
+                <div style={{ fontSize: 11, color: C.textTert, marginBottom: passwordMode === 'shared' ? 8 : 0 }}>
+                  Anyone who knows it can sign in as any of these employees until they change it — each one is
+                  required to set their own password immediately on first login.
+                </div>
+                {passwordMode === 'shared' && (
+                  <input
+                    value={sharedPassword}
+                    onChange={e => setSharedPassword(e.target.value)}
+                    placeholder="Min 8 characters"
+                    style={{ ...inputStyle(!sharedPasswordValid), maxWidth: 220 }}
+                  />
+                )}
+              </div>
+            </label>
+          </div>
+
           {creating && (
             <div style={{ fontSize: 12, color: C.textSec, marginBottom: 10 }}>
               Creating {progress.done} of {progress.total}…
@@ -264,8 +298,8 @@ export default function BulkAddEmployees({ employees, onBack, onDone, onToast })
             </button>
             <button
               onClick={doCreate}
-              disabled={creating || readyRows.length === 0}
-              style={{ ...btnStyle(C.green, '#fff'), flex: 1, opacity: (creating || readyRows.length === 0) ? 0.6 : 1 }}
+              disabled={creating || !canCreate}
+              style={{ ...btnStyle(C.green, '#fff'), flex: 1, opacity: (creating || !canCreate) ? 0.6 : 1 }}
             >
               {creating ? 'Creating…' : `Create ${readyRows.length} Employee${readyRows.length !== 1 ? 's' : ''}`}
             </button>

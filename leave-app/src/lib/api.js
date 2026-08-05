@@ -528,6 +528,16 @@ export const updateProfile = async (id, updates) => {
   return { data, error }
 }
 
+export const clearMustChangePassword = async (id) => {
+  const { data, error } = await supabase
+    .from('employees')
+    .update({ must_change_password: false })
+    .eq('id', id)
+    .select()
+    .single()
+  return { data, error }
+}
+
 // ─── Leave types ──────────────────────────────────────────────────────────────
 export const fetchLeaveTypes = async () => {
   const { data, error } = await supabase
