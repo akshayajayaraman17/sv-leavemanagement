@@ -3,9 +3,12 @@ import {
   fetchEmployees, createEmployee, updateEmployee, deactivateEmployee,
   fetchSalary, upsertSalary, fetchApprovers, setApprovers,
   fetchLeaveTypes, fetchLeaveAdjustments, upsertLeaveAdjustment, grantCompOff,
-  fetchLeaveBalance,
+  fetchLeaveBalance, fetchHolidays, createHoliday, deleteHoliday, fetchAuditLog,
+  fetchAllLeaveRequests, fetchAllAttendance,
 } from '../lib/api'
-import { Avatar, Badge, C, Confirm, Empty, Field, SecTitle, Spinner, btnStyle, card, inputStyle, formatDate } from './UI'
+import { rowsToCsv, downloadCsv } from '../lib/csv'
+import { printPayslip } from '../lib/payslip'
+import { Avatar, C, Confirm, Empty, Field, SecTitle, Spinner, btnStyle, card, inputStyle, formatDate } from './UI'
 
 const ROLES = { admin: 'Admin', manager: 'Manager', employee: 'Employee' }
 const DEPTS = ['Engineering', 'HR', 'Finance', 'Sales', 'Operations', 'Marketing', 'Design', 'Product']
@@ -301,6 +304,14 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
           <Field label="Effective From">
             <input type="date" value={salForm.effective_from} onChange={e => setSalForm(f => ({ ...f, effective_from: e.target.value }))} style={inputStyle()} />
           </Field>
+          {isEdit && (
+            <button
+              onClick={() => printPayslip({ employee: { ...initial, ...form }, salary: salForm })}
+              style={{ ...btnStyle(C.bgSec, C.textSec), padding: '8px 14px', fontSize: 12, marginTop: 4 }}
+            >
+              🖨 Print / Download Payslip
+            </button>
+          )}
         </div>
       )}
 
@@ -469,8 +480,218 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
   )
 }
 
+// ── Company Holidays ───────────────────────────────────────────────────────────
+function HolidaysPanel({ onToast }) {
+  const [holidays, setHolidays] = useState([])
+  const [loading,  setLoading]  = useState(true)
+  const [form,     setForm]     = useState({ holiday_date: '', name: '' })
+  const [errs,     setErrs]     = useState({})
+  const [saving,   setSaving]   = useState(false)
+  const [confirm,  setConfirm]  = useState(null)
+
+  const load = () => {
+    setLoading(true)
+    fetchHolidays().then(({ data }) => setHolidays(data || [])).finally(() => setLoading(false))
+  }
+  useEffect(load, [])
+
+  const add = async () => {
+    const e = {}
+    if (!form.holiday_date) e.holiday_date = 'Required'
+    if (!form.name.trim())  e.name = 'Required'
+    if (Object.keys(e).length) { setErrs(e); return }
+
+    setSaving(true)
+    const { error } = await createHoliday({ holiday_date: form.holiday_date, name: form.name.trim() })
+    setSaving(false)
+    if (error) { onToast(error.message, 'error'); return }
+    setForm({ holiday_date: '', name: '' })
+    setErrs({})
+    onToast('Holiday added')
+    load()
+  }
+
+  const remove = async (id) => {
+    const { error } = await deleteHoliday(id)
+    if (error) { onToast(error.message, 'error'); return }
+    onToast('Holiday removed')
+    setConfirm(null)
+    load()
+  }
+
+  if (loading) return <Spinner />
+
+  return (
+    <div>
+      {confirm && (
+        <Confirm
+          msg={`Remove ${confirm.name} (${formatDate(confirm.holiday_date)})?`}
+          onYes={() => remove(confirm.id)}
+          onNo={() => setConfirm(null)}
+        />
+      )}
+
+      <div style={{ ...card, marginBottom: 18 }}>
+        <SecTitle>Add Holiday</SecTitle>
+        <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Field label="Date" error={errs.holiday_date}>
+            <input type="date" value={form.holiday_date} onChange={e => setForm(f => ({ ...f, holiday_date: e.target.value }))} style={inputStyle(errs.holiday_date)} />
+          </Field>
+          <Field label="Name" error={errs.name}>
+            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Diwali" style={inputStyle(errs.name)} />
+          </Field>
+        </div>
+        <button onClick={add} disabled={saving} style={{ ...btnStyle(C.green, '#fff'), padding: '8px 16px', fontSize: 13, opacity: saving ? 0.7 : 1 }}>
+          {saving ? 'Adding…' : '+ Add Holiday'}
+        </button>
+      </div>
+
+      <div style={{ fontSize: 11, color: C.textTert, marginBottom: 12 }}>{holidays.length} holiday{holidays.length !== 1 ? 's' : ''}</div>
+
+      {holidays.length === 0 ? <Empty text="No holidays configured" /> : holidays.map(h => (
+        <div key={h.id} style={{ ...card, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500 }}>{h.name}</div>
+            <div style={{ fontSize: 11, color: C.textSec }}>{formatDate(h.holiday_date)}</div>
+          </div>
+          <button onClick={() => setConfirm(h)} style={{ ...btnStyle(C.redBg, C.red), padding: '6px 12px', fontSize: 12 }}>Remove</button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── Audit Log ───────────────────────────────────────────────────────────────────
+const AUDIT_ACTION_LABEL = {
+  salary_change:    'Salary updated',
+  leave_adjustment: 'Leave adjustment',
+  role_change:      'Role changed',
+}
+const AUDIT_IGNORED_KEYS = new Set(['id', 'employee_id', 'created_at', 'updated_at'])
+
+function formatDateTime(s) {
+  if (!s) return '—'
+  return new Date(s).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+function summarizeAuditChange({ old_values, new_values }) {
+  if (!old_values && new_values) return 'Created'
+  if (old_values && !new_values) return 'Deleted'
+  if (!old_values || !new_values) return '—'
+  const changed = Object.keys(new_values).filter(k =>
+    !AUDIT_IGNORED_KEYS.has(k) && JSON.stringify(old_values[k]) !== JSON.stringify(new_values[k])
+  )
+  if (changed.length === 0) return 'No field changes'
+  return changed.map(k => `${k}: ${old_values[k] ?? '—'} → ${new_values[k] ?? '—'}`).join(' · ')
+}
+
+function AuditLogPanel() {
+  const [entries, setEntries] = useState([])
+  const [loading,  setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchAuditLog(200).then(({ data }) => setEntries(data || [])).finally(() => setLoading(false))
+  }, [])
+
+  if (loading) return <Spinner />
+
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: C.textTert, marginBottom: 12 }}>{entries.length} recent action{entries.length !== 1 ? 's' : ''}</div>
+      {entries.length === 0 ? <Empty text="No audit events yet" /> : entries.map(e => (
+        <div key={e.id} style={{ ...card, marginBottom: 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 500 }}>{AUDIT_ACTION_LABEL[e.action] || e.action}</div>
+          <div style={{ fontSize: 11, color: C.textSec, marginTop: 2 }}>
+            {e.actor?.full_name || 'Unknown'} · {formatDateTime(e.created_at)}
+          </div>
+          <div style={{ fontSize: 11, color: C.textTert, marginTop: 4, wordBreak: 'break-word' }}>
+            {summarizeAuditChange(e)}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── CSV Export ─────────────────────────────────────────────────────────────────
+function ExportPanel({ employees, onToast }) {
+  const [exporting, setExporting] = useState(null)
+
+  const exportEmployees = () => {
+    setExporting('employees')
+    downloadCsv('employees.csv', rowsToCsv(employees, [
+      { key: 'employee_code', label: 'Employee Code' },
+      { key: 'full_name',     label: 'Full Name' },
+      { key: 'email',         label: 'Email' },
+      { key: 'department',    label: 'Department' },
+      { key: 'designation',   label: 'Designation' },
+      { key: 'role',          label: 'Role' },
+      { key: 'joining_date',  label: 'Joining Date' },
+      { key: 'is_active',     label: 'Active' },
+    ]))
+    setExporting(null)
+    onToast('Employees exported')
+  }
+
+  const exportLeaveRequests = async () => {
+    setExporting('leave')
+    const { data, error } = await fetchAllLeaveRequests()
+    setExporting(null)
+    if (error) { onToast(error.message, 'error'); return }
+    downloadCsv('leave-requests.csv', rowsToCsv(data || [], [
+      { key: 'employee.employee_code', label: 'Employee Code' },
+      { key: 'employee.full_name',     label: 'Employee' },
+      { key: 'employee.department',    label: 'Department' },
+      { key: 'leave_type',             label: 'Leave Type' },
+      { key: 'from_date',              label: 'From' },
+      { key: 'to_date',                label: 'To' },
+      { key: 'days',                   label: 'Days' },
+      { key: 'status',                 label: 'Status' },
+      { key: 'applied_on',             label: 'Applied On' },
+      { key: 'decided_on',             label: 'Decided On' },
+    ]))
+    onToast('Leave requests exported')
+  }
+
+  const exportAttendance = async () => {
+    setExporting('attendance')
+    const { data, error } = await fetchAllAttendance(1000)
+    setExporting(null)
+    if (error) { onToast(error.message, 'error'); return }
+    downloadCsv('attendance.csv', rowsToCsv(data || [], [
+      { key: 'employee.full_name',  label: 'Employee' },
+      { key: 'employee.department', label: 'Department' },
+      { key: 'date',                label: 'Date' },
+      { key: 'check_in_time',       label: 'Check In' },
+      { key: 'check_out_time',      label: 'Check Out' },
+      { key: 'total_hours',         label: 'Total Hours' },
+      { key: 'status',              label: 'Status' },
+    ]))
+    onToast('Attendance exported')
+  }
+
+  const exportRow = (title, desc, key, onClick) => (
+    <div style={{ ...card, marginBottom: 12 }}>
+      <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>{title}</div>
+      <div style={{ fontSize: 12, color: C.textSec, marginBottom: 12 }}>{desc}</div>
+      <button onClick={onClick} disabled={exporting === key} style={{ ...btnStyle(C.green, '#fff'), padding: '7px 14px', fontSize: 12, opacity: exporting === key ? 0.7 : 1 }}>
+        {exporting === key ? 'Exporting…' : 'Export CSV'}
+      </button>
+    </div>
+  )
+
+  return (
+    <div>
+      {exportRow('Employee Roster', `All ${employees.length} employees with contact and role details.`, 'employees', exportEmployees)}
+      {exportRow('Leave Requests', 'All leave requests across the organization, any status.', 'leave', exportLeaveRequests)}
+      {exportRow('Attendance', 'Most recent 1,000 attendance records across the organization.', 'attendance', exportAttendance)}
+    </div>
+  )
+}
+
 // ── Admin Panel root ──────────────────────────────────────────────────────────
 export default function AdminPanel({ onToast }) {
+  const [section,   setSection]   = useState('employees')   // 'employees' | 'holidays' | 'audit' | 'export'
   const [employees, setEmployees] = useState([])
   const [loading,   setLoading]   = useState(true)
   const [view,      setView]      = useState('list')   // 'list' | 'add' | 'edit'
@@ -504,6 +725,47 @@ export default function AdminPanel({ onToast }) {
 
   if (loading) return <Spinner />
 
+  const SectionTab = ({ id, label }) => (
+    <button onClick={() => setSection(id)} style={{ padding: '7px 16px', fontSize: 12, fontWeight: 500, borderRadius: 20, border: 'none', cursor: 'pointer', background: section === id ? C.green : C.bgSec, color: section === id ? '#fff' : C.textSec }}>
+      {label}
+    </button>
+  )
+  const sectionTabs = (
+    <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
+      <SectionTab id="employees" label="Employees" />
+      <SectionTab id="holidays" label="Holidays" />
+      <SectionTab id="audit" label="Audit Log" />
+      <SectionTab id="export" label="Export" />
+    </div>
+  )
+
+  if (section === 'holidays') {
+    return (
+      <div>
+        {sectionTabs}
+        <HolidaysPanel onToast={onToast} />
+      </div>
+    )
+  }
+
+  if (section === 'audit') {
+    return (
+      <div>
+        {sectionTabs}
+        <AuditLogPanel />
+      </div>
+    )
+  }
+
+  if (section === 'export') {
+    return (
+      <div>
+        {sectionTabs}
+        <ExportPanel employees={employees} onToast={onToast} />
+      </div>
+    )
+  }
+
   if (view === 'add' || view === 'edit') {
     return (
       <EmployeeForm
@@ -525,6 +787,8 @@ export default function AdminPanel({ onToast }) {
 
   return (
     <div>
+      {sectionTabs}
+
       {confirm && (
         <Confirm
           msg={`Deactivate ${confirm.full_name}? They will lose access immediately.`}

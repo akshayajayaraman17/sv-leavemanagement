@@ -4,8 +4,9 @@ import {
   decideLeave, decideCompOff,
   fetchPendingTimesheets, decideTimesheet, fetchTimesheetEntries,
   fetchPendingRegularizations, decideRegularization, updateAttendanceStatus,
+  getMedicalCertificateUrl,
 } from '../lib/api'
-import { Avatar, Badge, C, Empty, Spinner, btnStyle, card, formatDate, inputStyle } from './UI'
+import { Avatar, C, Empty, Spinner, btnStyle, card, formatDate, inputStyle } from './UI'
 
 export default function Approvals({ employee, onToast }) {
   const [tab,        setTab]      = useState('comp')
@@ -42,6 +43,12 @@ export default function Approvals({ employee, onToast }) {
     const { data } = await fetchTimesheetEntries(tsId)
     setTsEntries(p => ({ ...p, [tsId]: data || [] }))
     setExpandedTs(tsId)
+  }
+
+  const viewCertificate = async (value) => {
+    const { url, error } = await getMedicalCertificateUrl(value)
+    if (error || !url) { onToast('Failed to load certificate', 'error'); return }
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 
   const handleLeave = async (id, status) => {
@@ -110,8 +117,6 @@ export default function Approvals({ employee, onToast }) {
     </button>
   )
 
-  const DAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
-
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
@@ -174,10 +179,11 @@ export default function Approvals({ employee, onToast }) {
             </div>
             <div style={{ fontSize: 12, color: C.textSec, borderTop: `0.5px solid ${C.border}`, padding: '8px 0 6px' }}>{l.reason}</div>
             {l.medical_certificate_url && (
-              <a href={l.medical_certificate_url} target="_blank" rel="noreferrer"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.blue, marginBottom: 10 }}>
+              <button
+                onClick={() => viewCertificate(l.medical_certificate_url)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.blue, marginBottom: 10, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline' }}>
                 📎 View medical certificate
-              </a>
+              </button>
             )}
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => handleLeave(l.id, 'approved')} disabled={deciding === l.id} style={{ ...btnStyle(C.green, '#fff'), flex: 1 }}>Approve</button>

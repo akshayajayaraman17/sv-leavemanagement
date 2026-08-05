@@ -7,7 +7,7 @@ import {
   updateAttendanceStatus,
 } from '../lib/api'
 import { supabase } from '../lib/supabase'
-import { C, SecTitle, Spinner, card, formatDate, Field, btnStyle, inputStyle, Badge } from './UI'
+import { C, SecTitle, Spinner, card, formatDate, Field, btnStyle, inputStyle } from './UI'
 
 const MIN_HOURS = 8
 
@@ -120,8 +120,6 @@ export default function Attendance({ employee }) {
   const lastPunch = punches.length > 0 ? punches[punches.length - 1] : null
   const isCurrentlyIn = lastPunch?.punch_type === 'check_in'
   const hasAnyPunch = punches.length > 0
-  const checkedIn = !!record?.check_in_time
-  const checkedOut = !!record?.check_out_time
   const sessionCount = punches.filter(p => p.punch_type === 'check_in').length
 
   const handleCheckIn = async () => {
@@ -186,14 +184,8 @@ export default function Attendance({ employee }) {
         lat, lng, address,
       })
 
-      // Recalculate total hours from all punches
+      // Recalculate total hours from all punches (the checkout punch above is already included)
       const { data: allPunches } = await fetchPunches(record.id)
-      // Add current checkout to the list for calculation
-      const withCurrent = [...(allPunches || []), {
-        punch_type: 'check_out',
-        punch_time: now.toISOString(),
-      }]
-      // Actually the punch was already inserted, so just use allPunches
       const totalHours = calcHoursFromPunches(allPunches || [])
 
       const { data, error } = await checkOut(record.id, {

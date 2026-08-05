@@ -91,6 +91,7 @@ create table public.leave_requests (
   approver_id  uuid references public.employees(id),
   decided_on   timestamptz,
   reject_reason text,
+  medical_certificate_url text,
   applied_on   timestamptz not null default now(),
   created_at   timestamptz not null default now()
 );
@@ -122,6 +123,14 @@ create table public.comp_off_requests (
   created_at   timestamptz not null default now()
 );
 
+-- Company holidays — admin-managed, used for working-day / comp-off math
+create table public.company_holidays (
+  id           uuid primary key default uuid_generate_v4(),
+  holiday_date date not null unique,
+  name         text not null,
+  created_at   timestamptz not null default now()
+);
+
 -- ────────────────────────────────────────────────────────────
 -- SEED LEAVE TYPES
 -- ────────────────────────────────────────────────────────────
@@ -135,14 +144,27 @@ insert into public.leave_types (code, label, annual_days, color, bg_color, is_co
 -- HELPER FUNCTIONS
 -- ────────────────────────────────────────────────────────────
 
--- Returns the effective approver for an employee
--- (first custom approver if set, otherwise manager)
+-- Returns the effective approver for an employee: the highest-priority
+-- active approver from approver_config, falling back to the manager only
+-- if the manager is themselves active (a deactivated approver is skipped
+-- rather than silently stalling every request routed to them).
 create or replace function public.get_approver(emp_id uuid)
 returns uuid language sql stable as $$
   select coalesce(
-    (select approver_id from public.approver_config
-      where employee_id = emp_id order by priority asc limit 1),
-    (select manager_id from public.employees where id = emp_id)
+    (
+      select ac.approver_id
+      from public.approver_config ac
+      join public.employees e on e.id = ac.approver_id
+      where ac.employee_id = emp_id and e.is_active = true
+      order by ac.priority asc
+      limit 1
+    ),
+    (
+      select m.id
+      from public.employees emp
+      join public.employees m on m.id = emp.manager_id
+      where emp.id = emp_id and m.is_active = true
+    )
   );
 $$;
 
@@ -227,6 +249,104 @@ create trigger trg_jira_accounts_updated_at before update on public.jira_account
 create trigger trg_leave_adjustments_updated_at before update on public.leave_adjustments
   for each row execute function public.handle_updated_at();
 
+-- Narrow, purpose-built read for the team calendar: only ever returns
+-- name/type/dates for approved leave, never reason or certificate links,
+-- regardless of the caller's own RLS visibility into leave_requests.
+create or replace function public.get_team_calendar(p_from date, p_to date)
+returns table (
+  employee_id     uuid,
+  full_name       text,
+  avatar_initials text,
+  leave_type      text,
+  from_date       date,
+  to_date         date
+) language sql stable security definer
+set search_path = public
+as $$
+  select
+    lr.employee_id,
+    e.full_name,
+    e.avatar_initials,
+    lr.leave_type,
+    lr.from_date,
+    lr.to_date
+  from public.leave_requests lr
+  join public.employees e on e.id = lr.employee_id
+  where lr.status = 'approved'
+    and lr.from_date <= p_to
+    and lr.to_date   >= p_from;
+$$;
+
+revoke all on function public.get_team_calendar(date, date) from public;
+grant execute on function public.get_team_calendar(date, date) to authenticated;
+
+-- ────────────────────────────────────────────────────────────
+-- AUDIT TRAIL — salary changes, leave adjustments, role changes
+-- ────────────────────────────────────────────────────────────
+create table public.audit_log (
+  id          uuid primary key default uuid_generate_v4(),
+  actor_id    uuid references public.employees(id),
+  action      text not null,
+  table_name  text not null,
+  record_id   uuid,
+  old_values  jsonb,
+  new_values  jsonb,
+  created_at  timestamptz not null default now()
+);
+
+create or replace function public.log_salary_change()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.audit_log (actor_id, action, table_name, record_id, old_values, new_values)
+  values (
+    auth.uid(), 'salary_change', 'salary_details', coalesce(new.id, old.id),
+    case when tg_op = 'DELETE' then to_jsonb(old) else (case when tg_op = 'UPDATE' then to_jsonb(old) else null end) end,
+    case when tg_op = 'DELETE' then null else to_jsonb(new) end
+  );
+  return coalesce(new, old);
+end;
+$$;
+
+create trigger trg_audit_salary
+  after insert or update or delete on public.salary_details
+  for each row execute function public.log_salary_change();
+
+create or replace function public.log_leave_adjustment()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.audit_log (actor_id, action, table_name, record_id, old_values, new_values)
+  values (
+    auth.uid(), 'leave_adjustment', 'leave_adjustments', coalesce(new.id, old.id),
+    case when tg_op = 'DELETE' then to_jsonb(old) else (case when tg_op = 'UPDATE' then to_jsonb(old) else null end) end,
+    case when tg_op = 'DELETE' then null else to_jsonb(new) end
+  );
+  return coalesce(new, old);
+end;
+$$;
+
+create trigger trg_audit_leave_adjustments
+  after insert or update or delete on public.leave_adjustments
+  for each row execute function public.log_leave_adjustment();
+
+create or replace function public.log_role_change()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'UPDATE' and new.role is distinct from old.role then
+    insert into public.audit_log (actor_id, action, table_name, record_id, old_values, new_values)
+    values (
+      auth.uid(), 'role_change', 'employees', new.id,
+      jsonb_build_object('role', old.role),
+      jsonb_build_object('role', new.role)
+    );
+  end if;
+  return new;
+end;
+$$;
+
+create trigger trg_audit_role_change
+  after update on public.employees
+  for each row execute function public.log_role_change();
+
 -- ────────────────────────────────────────────────────────────
 -- ROW LEVEL SECURITY (RLS)
 -- ────────────────────────────────────────────────────────────
@@ -238,9 +358,25 @@ alter table public.comp_off_requests enable row level security;
 alter table public.leave_types       enable row level security;
 alter table public.jira_accounts     enable row level security;
 alter table public.leave_adjustments enable row level security;
+alter table public.company_holidays  enable row level security;
+alter table public.audit_log         enable row level security;
 
-create policy "jira_accounts_select_own_or_admin" on public.jira_accounts for select using (
-  auth.uid() = employee_id or public.is_admin()
+-- Helper: is the current user an admin?
+create or replace function public.is_admin()
+returns boolean language sql stable as $$
+  select exists (select 1 from public.employees where id = auth.uid() and role = 'admin');
+$$;
+
+-- Helper: is the current user a manager?
+create or replace function public.is_manager()
+returns boolean language sql stable as $$
+  select exists (select 1 from public.employees where id = auth.uid() and role in ('admin','manager'));
+$$;
+
+-- jira_accounts: owner-only. Admins have no legitimate need to read another
+-- employee's raw API token, so they are deliberately excluded here.
+create policy "jira_accounts_select_own" on public.jira_accounts for select using (
+  auth.uid() = employee_id
 );
 
 create policy "jira_accounts_insert_own" on public.jira_accounts for insert with check (
@@ -256,18 +392,6 @@ create policy "jira_accounts_update_own" on public.jira_accounts for update usin
 create policy "jira_accounts_delete_own" on public.jira_accounts for delete using (
   auth.uid() = employee_id
 );
-
--- Helper: is the current user an admin?
-create or replace function public.is_admin()
-returns boolean language sql stable as $$
-  select exists (select 1 from public.employees where id = auth.uid() and role = 'admin');
-$$;
-
--- Helper: is the current user a manager?
-create or replace function public.is_manager()
-returns boolean language sql stable as $$
-  select exists (select 1 from public.employees where id = auth.uid() and role in ('admin','manager'));
-$$;
 
 -- ── employees ──
 -- Everyone can read basic employee info (needed for dropdowns)
@@ -287,6 +411,13 @@ create policy "approver_admin_write"     on public.approver_config for all using
 -- ── leave_types ──
 create policy "leave_types_read_all"     on public.leave_types for select using (true);
 create policy "leave_types_admin_write"  on public.leave_types for all using (public.is_admin());
+
+-- ── company_holidays ──
+create policy "holidays_read_all"        on public.company_holidays for select using (true);
+create policy "holidays_admin_write"     on public.company_holidays for all using (public.is_admin());
+
+-- ── audit_log — admin read-only, all writes come from SECURITY DEFINER triggers ──
+create policy "audit_log_admin_read"     on public.audit_log for select using (public.is_admin());
 
 -- ── leave_adjustments ── employees can see their own override, only admins can write
 create policy "leave_adjustments_select" on public.leave_adjustments for select using (

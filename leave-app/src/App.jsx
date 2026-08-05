@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useAuth } from './lib/AuthContext'
 import Login from './components/Login'
 import Dashboard from './components/Dashboard'
@@ -12,6 +12,8 @@ import Timesheet from './components/Timesheet'
 import Profile from './components/Profile'
 import Team from './components/Team'
 import Notifications from './components/Notifications'
+import Calendar from './components/Calendar'
+import ErrorBoundary from './components/ErrorBoundary'
 import { Toast, C, Spinner, Avatar } from './components/UI'
 import { signOut } from './lib/api'
 
@@ -24,6 +26,7 @@ const NAV = {
     { id: 'apply',      label: 'Apply',       icon: '+' },
     { id: 'comp',       label: 'Comp Off',    icon: '◈' },
     { id: 'history',    label: 'History',     icon: '≡' },
+    { id: 'calendar',   label: 'Calendar',    icon: '📅' },
     { id: 'jira',       label: 'Jira',        icon: '🔗' },
     { id: 'profile',    label: 'Profile',     icon: '👤' },
   ],
@@ -35,6 +38,7 @@ const NAV = {
     { id: 'apply',      label: 'Apply',       icon: '+' },
     { id: 'comp',       label: 'Comp Off',    icon: '◈' },
     { id: 'history',    label: 'History',     icon: '≡' },
+    { id: 'calendar',   label: 'Calendar',    icon: '📅' },
     { id: 'approvals',  label: 'Approvals',   icon: '✓' },
     { id: 'team',       label: 'Team',        icon: '👥' },
     { id: 'jira',       label: 'Jira',        icon: '🔗' },
@@ -48,6 +52,7 @@ const NAV = {
     { id: 'apply',      label: 'Apply',       icon: '+' },
     { id: 'comp',       label: 'Comp Off',    icon: '◈' },
     { id: 'history',    label: 'History',     icon: '≡' },
+    { id: 'calendar',   label: 'Calendar',    icon: '📅' },
     { id: 'approvals',  label: 'Approvals',   icon: '✓' },
     { id: 'team',       label: 'Team',        icon: '👥' },
     { id: 'admin',      label: 'Admin',       icon: '⚙' },
@@ -57,7 +62,7 @@ const NAV = {
 }
 const TITLES = {
   dash: 'Dashboard', notifications: 'Notifications', attendance: 'Attendance', timesheet: 'Timesheet',
-  apply: 'Apply Leave', comp: 'Request Comp Off', history: 'My Leaves',
+  apply: 'Apply Leave', comp: 'Request Comp Off', history: 'My Leaves', calendar: 'Team Calendar',
   approvals: 'Approvals', team: 'Team', admin: 'Admin Panel', jira: 'Jira', profile: 'My Profile',
 }
 
@@ -144,18 +149,21 @@ export default function App() {
         {/* Page content */}
         <div className="app-content">
           <div className="content-max">
-            {tab === 'dash'       && <Dashboard     employee={employee} />}
-            {tab === 'notifications' && <Notifications employee={employee} />}
-            {tab === 'attendance' && <Attendance   employee={employee} />}
-            {tab === 'timesheet'  && <Timesheet    employee={employee} onToast={showToast} />}
-            {tab === 'apply'      && <ApplyLeave   employee={employee} onToast={showToast} />}
-            {tab === 'comp'       && <ApplyCompOff employee={employee} onToast={showToast} />}
-            {tab === 'history'    && <MyLeaves     employee={employee} />}
-            {tab === 'approvals'  && <Approvals    employee={employee} onToast={showToast} />}
-            {tab === 'admin'      && <AdminPanel   onToast={showToast} />}
-            {tab === 'team'       && <Team          viewer={employee} onToast={showToast} />}
-            {tab === 'jira'       && <JiraSettings employee={employee} onToast={showToast} />}
-            {tab === 'profile'    && <Profile      employee={employee} onToast={showToast} />}
+            <ErrorBoundary key={tab}>
+              {tab === 'dash'       && <Dashboard     employee={employee} />}
+              {tab === 'notifications' && <Notifications employee={employee} />}
+              {tab === 'attendance' && <Attendance   employee={employee} />}
+              {tab === 'timesheet'  && <Timesheet    employee={employee} onToast={showToast} />}
+              {tab === 'apply'      && <ApplyLeave   employee={employee} onToast={showToast} />}
+              {tab === 'comp'       && <ApplyCompOff employee={employee} onToast={showToast} />}
+              {tab === 'history'    && <MyLeaves     employee={employee} onToast={showToast} />}
+              {tab === 'calendar'   && <Calendar />}
+              {tab === 'approvals'  && <Approvals    employee={employee} onToast={showToast} />}
+              {tab === 'admin'      && <AdminPanel   onToast={showToast} />}
+              {tab === 'team'       && <Team          viewer={employee} onToast={showToast} />}
+              {tab === 'jira'       && <JiraSettings employee={employee} onToast={showToast} />}
+              {tab === 'profile'    && <Profile      employee={employee} onToast={showToast} />}
+            </ErrorBoundary>
           </div>
         </div>
 
