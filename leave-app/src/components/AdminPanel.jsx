@@ -8,6 +8,8 @@ import {
 } from '../lib/api'
 import { rowsToCsv, downloadCsv } from '../lib/csv'
 import { printPayslip } from '../lib/payslip'
+import { generateEmpCode } from '../lib/employeeCode'
+import BulkAddEmployees from './BulkAddEmployees'
 import { Avatar, C, Confirm, Empty, Field, SecTitle, Spinner, btnStyle, card, inputStyle, formatDate } from './UI'
 
 const ROLES = { admin: 'Admin', manager: 'Manager', employee: 'Employee' }
@@ -15,14 +17,6 @@ const DEPTS = ['Engineering', 'HR', 'Finance', 'Sales', 'Operations', 'Marketing
 const today = new Date().toISOString().split('T')[0]
 
 // ── Add/Edit Employee Form ────────────────────────────────────────────────────
-function generateEmpCode(employees) {
-  const existing = (employees || [])
-    .map(e => e.employee_code)
-    .filter(c => /^EMP\d+$/.test(c))
-    .map(c => parseInt(c.replace('EMP', ''), 10))
-  const next = existing.length > 0 ? Math.max(...existing) + 1 : 1
-  return `EMP${String(next).padStart(3, '0')}`
-}
 
 function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBack, onToast }) {
   const isEdit = !!initial?.id
@@ -714,7 +708,7 @@ export default function AdminPanel({ onToast }) {
   const [section,   setSection]   = useState('employees')   // 'employees' | 'holidays' | 'audit' | 'export'
   const [employees, setEmployees] = useState([])
   const [loading,   setLoading]   = useState(true)
-  const [view,      setView]      = useState('list')   // 'list' | 'add' | 'edit'
+  const [view,      setView]      = useState('list')   // 'list' | 'add' | 'edit' | 'bulk'
   const [editing,   setEditing]   = useState(null)
   const [editingTab, setEditingTab] = useState('details')
   const [confirm,   setConfirm]   = useState(null)
@@ -804,6 +798,17 @@ export default function AdminPanel({ onToast }) {
     )
   }
 
+  if (view === 'bulk') {
+    return (
+      <BulkAddEmployees
+        employees={employees}
+        onBack={() => setView('list')}
+        onDone={() => { setView('list'); load() }}
+        onToast={onToast}
+      />
+    )
+  }
+
   const filtered = employees.filter(e =>
     e.full_name.toLowerCase().includes(q.toLowerCase()) ||
     e.email.toLowerCase().includes(q.toLowerCase()) ||
@@ -827,6 +832,9 @@ export default function AdminPanel({ onToast }) {
           value={q} onChange={e => setQ(e.target.value)}
           placeholder="Search employees…" style={{ ...inputStyle(), flex: 1 }}
         />
+        <button onClick={() => setView('bulk')} style={{ ...btnStyle(C.bgSec, C.textSec), whiteSpace: 'nowrap', padding: '9px 14px', fontSize: 13 }}>
+          Bulk Add
+        </button>
         <button onClick={() => setView('add')} style={{ ...btnStyle(C.green, '#fff'), whiteSpace: 'nowrap', padding: '9px 14px', fontSize: 13 }}>
           + Add Employee
         </button>

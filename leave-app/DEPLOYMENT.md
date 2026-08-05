@@ -163,11 +163,12 @@ The app is an installable PWA — useful mainly for the Attendance check-in/chec
 1. Log in as admin
 2. Go to **Admin tab** → **Add Employee**
 3. Fill in details across the tabs: Details / Salary / Approvers / Leave / Comp Off
-4. Each new employee gets an email invite to set their password (Supabase handles this)
-5. **Holidays** tab (within Admin) — add company holidays; these are excluded from leave-day counts and count toward comp-off eligibility
-6. **Audit Log** tab (within Admin) — history of salary changes, leave adjustments, and role changes
-7. **Export** tab (within Admin) — CSV export of the employee roster, all leave requests, or attendance
-8. From an employee's **Salary** tab, **Print / Download Payslip** opens a print-ready payslip (use the browser's "Save as PDF")
+4. There's no self-serve signup or email invite — the admin sets (or, for bulk add, the system generates) the employee's initial password directly; share it with them out of band and they can change it themselves under Profile once logged in
+5. **Bulk Add** (next to Add Employee) — upload a CSV of new hires (template provided in the UI); a random temporary password is generated per employee and shown/exportable once, immediately after creation
+6. **Holidays** tab (within Admin) — add company holidays; these are excluded from leave-day counts and count toward comp-off eligibility
+7. **Audit Log** tab (within Admin) — history of salary changes, leave adjustments, and role changes
+8. **Export** tab (within Admin) — CSV export of the employee roster, all leave requests, or attendance
+9. From an employee's **Salary** tab, **Print / Download Payslip** opens a print-ready payslip (use the browser's "Save as PDF")
 
 ### Employee workflow
 1. Employee logs in
