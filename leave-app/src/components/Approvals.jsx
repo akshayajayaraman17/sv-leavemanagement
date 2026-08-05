@@ -20,6 +20,67 @@ export default function Approvals({ employee, onToast }) {
   const [tsEntries,  setTsEntries] = useState({})
   const [rejectId,   setRejectId] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
+  const [selected,   setSelected] = useState(new Set())
+  const [bulkBusy,   setBulkBusy] = useState(false)
+  const [bulkRejecting, setBulkRejecting] = useState(false)
+  const [bulkRejectReason, setBulkRejectReason] = useState('')
+
+  const TAB_LABEL = { comp: 'comp off request', leaves: 'leave request', timesheets: 'timesheet', regs: 'regularization' }
+  const currentList = tab === 'comp' ? comps : tab === 'leaves' ? leaves : tab === 'timesheets' ? timesheets : regs
+  const needsReason = tab === 'timesheets' || tab === 'regs'
+
+  const switchTab = (id) => {
+    setTab(id)
+    setSelected(new Set())
+    setBulkRejecting(false)
+    setBulkRejectReason('')
+  }
+
+  const toggleSelected = (id) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const allSelected = currentList.length > 0 && currentList.every(item => selected.has(item.id))
+  const toggleSelectAll = () => setSelected(allSelected ? new Set() : new Set(currentList.map(i => i.id)))
+
+  const bulkDecide = async (status) => {
+    if (status === 'rejected' && needsReason && !bulkRejectReason.trim()) { setBulkRejecting(true); return }
+    setBulkBusy(true)
+    const ids = Array.from(selected)
+    const reason = bulkRejectReason.trim() || null
+
+    const results = await Promise.all(ids.map(async (id) => {
+      if (tab === 'comp')       return { id, ...(await decideCompOff(id, status)) }
+      if (tab === 'leaves')     return { id, ...(await decideLeave(id, status)) }
+      if (tab === 'timesheets') return { id, ...(await decideTimesheet(id, status, status === 'rejected' ? reason : null)) }
+      const res = await decideRegularization(id, status, status === 'rejected' ? reason : null)
+      if (!res.error && status === 'approved') {
+        const reg = regs.find(r => r.id === id)
+        if (reg) await updateAttendanceStatus(reg.attendance_id, 'present')
+      }
+      return { id, ...res }
+    }))
+
+    const succeeded = new Set(results.filter(r => !r.error).map(r => r.id))
+    const failed = results.length - succeeded.size
+
+    if (tab === 'comp')       setComps(p => p.filter(c => !succeeded.has(c.id)))
+    if (tab === 'leaves')     setLeaves(p => p.filter(l => !succeeded.has(l.id)))
+    if (tab === 'timesheets') setTimesheets(p => p.filter(t => !succeeded.has(t.id)))
+    if (tab === 'regs')       setRegs(p => p.filter(r => !succeeded.has(r.id)))
+
+    setBulkBusy(false)
+    setBulkRejecting(false)
+    setBulkRejectReason('')
+    setSelected(new Set())
+
+    if (succeeded.size) onToast(`${succeeded.size} ${TAB_LABEL[tab]}${succeeded.size > 1 ? 's' : ''} ${status}${failed ? ` — ${failed} failed` : ''}`)
+    else onToast('Bulk action failed', 'error')
+  }
 
   const load = () => {
     setLoading(true)
@@ -29,6 +90,8 @@ export default function Approvals({ employee, onToast }) {
       fetchPendingTimesheets(employee.id),
       fetchPendingRegularizations(employee.id),
     ]).then(([l, c, ts, r]) => {
+      const err = l.error || c.error || ts.error || r.error
+      if (err) onToast(err.message || 'Failed to load some approvals', 'error')
       setLeaves(l.data || [])
       setComps(c.data || [])
       setTimesheets(ts.data || [])
@@ -101,7 +164,7 @@ export default function Approvals({ employee, onToast }) {
   if (loading) return <Spinner />
 
   const TB = ({ id, label, count }) => (
-    <button onClick={() => setTab(id)} style={{
+    <button onClick={() => switchTab(id)} style={{
       padding: '7px 16px', fontSize: 12, fontWeight: 500, borderRadius: 20,
       border: 'none', cursor: 'pointer',
       background: tab === id ? C.green : C.bgSec,
@@ -126,11 +189,45 @@ export default function Approvals({ employee, onToast }) {
         <TB id="regs"       label="Regularizations"  count={regs.length} />
       </div>
 
+      {currentList.length > 0 && (
+        <div style={{ ...card, marginBottom: 14, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.textSec, cursor: 'pointer' }}>
+            <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} />
+            {selected.size > 0 ? `${selected.size} selected` : 'Select all'}
+          </label>
+          {selected.size > 0 && !bulkRejecting && (
+            <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
+              <button onClick={() => bulkDecide('approved')} disabled={bulkBusy} style={{ ...btnStyle(C.green, '#fff'), padding: '6px 14px', fontSize: 12 }}>
+                {bulkBusy ? 'Approving…' : `Approve ${selected.size}`}
+              </button>
+              <button onClick={() => bulkDecide('rejected')} disabled={bulkBusy} style={{ ...btnStyle(C.bgSec, C.red, `0.5px solid #F09595`), padding: '6px 14px', fontSize: 12 }}>
+                Reject {selected.size}
+              </button>
+            </div>
+          )}
+          {bulkRejecting && (
+            <div style={{ display: 'flex', gap: 8, marginLeft: 'auto', flex: '1 1 240px' }}>
+              <input
+                autoFocus
+                value={bulkRejectReason}
+                onChange={e => setBulkRejectReason(e.target.value)}
+                placeholder="Reason for rejection…"
+                style={{ ...inputStyle(true), flex: 1 }}
+              />
+              <button onClick={() => bulkDecide('rejected')} disabled={bulkBusy || !bulkRejectReason.trim()} style={{ ...btnStyle(C.red, '#fff'), padding: '6px 14px', fontSize: 12, whiteSpace: 'nowrap' }}>
+                {bulkBusy ? 'Rejecting…' : 'Confirm'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {tab === 'comp' && (
         comps.length === 0 ? <Empty text="All comp off approvals done ✓" /> :
         comps.map(c => (
           <div key={c.id} style={{ ...card, marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggleSelected(c.id)} />
               <Avatar initials={c.employee?.avatar_initials} size={34} color={C.purple} bg={C.purpleBg} />
               <div>
                 <div style={{ fontSize: 14, fontWeight: 500 }}>{c.employee?.full_name}</div>
@@ -161,6 +258,7 @@ export default function Approvals({ employee, onToast }) {
         leaves.map(l => (
           <div key={l.id} style={{ ...card, marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <input type="checkbox" checked={selected.has(l.id)} onChange={() => toggleSelected(l.id)} />
               <Avatar initials={l.employee?.avatar_initials} size={34} color={C.blue} bg={C.blueBg} />
               <div>
                 <div style={{ fontSize: 14, fontWeight: 500 }}>{l.employee?.full_name}</div>
@@ -198,6 +296,7 @@ export default function Approvals({ employee, onToast }) {
         regs.map(r => (
           <div key={r.id} style={{ ...card, marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSelected(r.id)} />
               <Avatar initials={r.employee?.avatar_initials} size={34} color={C.amber} bg={C.amberBg} />
               <div>
                 <div style={{ fontSize: 14, fontWeight: 500 }}>{r.employee?.full_name}</div>
@@ -274,6 +373,7 @@ export default function Approvals({ employee, onToast }) {
           return (
             <div key={ts.id} style={{ ...card, marginBottom: 14 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <input type="checkbox" checked={selected.has(ts.id)} onChange={() => toggleSelected(ts.id)} />
                 <Avatar initials={ts.employee?.avatar_initials} size={34} color={C.green} bg={C.greenBg} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 14, fontWeight: 500 }}>{ts.employee?.full_name}</div>

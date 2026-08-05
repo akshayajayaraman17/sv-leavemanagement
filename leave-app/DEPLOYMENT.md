@@ -152,6 +152,9 @@ Your app will be live at `https://leave-manager-xxx.vercel.app` in ~60 seconds.
 ### Step 11 (optional): Custom domain
 In Vercel project settings → Domains → add your own domain for free.
 
+### Step 12: Install as an app (optional)
+The app is an installable PWA — useful mainly for the Attendance check-in/check-out flow, which is phone-first. On Android/Chrome, visit the site and use "Add to Home Screen" (or the install prompt); on iOS Safari, use Share → "Add to Home Screen". It launches full-screen with its own icon, no browser chrome.
+
 ---
 
 ## PART 4 — FIRST USE

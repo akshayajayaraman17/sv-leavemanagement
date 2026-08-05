@@ -20,7 +20,7 @@ function timeAgo(dateStr) {
   return formatDate(dateStr)
 }
 
-export default function Notifications({ employee }) {
+export default function Notifications({ employee, onToast }) {
   const [items,   setItems]   = useState([])
   const [loading, setLoading] = useState(true)
   const isApprover = employee.role === 'admin' || employee.role === 'manager'
@@ -39,10 +39,14 @@ export default function Notifications({ employee }) {
       isApprover ? fetchPendingRegularizations(employee.id) : Promise.resolve({ data: [] }),
     ]
 
-    Promise.all(calls).then(([
-      leaves, comps, adjustments, regs, timesheets,
-      pendingLeaves, pendingComps, pendingTs, pendingRegs,
-    ]) => {
+    Promise.all(calls).then((results) => {
+      const [
+        leaves, comps, adjustments, regs, timesheets,
+        pendingLeaves, pendingComps, pendingTs, pendingRegs,
+      ] = results
+      const err = results.find(r => r?.error)?.error
+      if (err) onToast?.(err.message || 'Failed to load some notifications', 'error')
+
       const feed = []
 
       for (const l of (leaves.data || [])) {

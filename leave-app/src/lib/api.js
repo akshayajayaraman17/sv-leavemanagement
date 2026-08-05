@@ -9,11 +9,15 @@ export const signOut = () => supabase.auth.signOut()
 export const getSession = () => supabase.auth.getSession()
 
 // ─── Employees ───────────────────────────────────────────────────────────────
-export const fetchEmployees = async () => {
+// Unbounded selects on a growing table are a real cost eventually — this
+// caps it well above any realistic roster size rather than leaving it
+// truly open-ended.
+export const fetchEmployees = async (limit = 2000) => {
   const { data, error } = await supabase
     .from('employees')
     .select('*')
     .order('full_name')
+    .limit(limit)
   return { data, error }
 }
 
@@ -214,6 +218,16 @@ const notifyDecision = (table, id) => {
   supabase.functions.invoke('send-notification', { body: { table, recordId: id } })
     .then(({ error }) => { if (error) console.error('Notification failed:', error) })
     .catch(err => console.error('Notification failed:', err))
+}
+
+export const cancelLeave = async (id) => {
+  const { data, error } = await supabase
+    .from('leave_requests')
+    .update({ status: 'cancelled' })
+    .eq('id', id)
+    .select()
+    .single()
+  return { data, error }
 }
 
 export const decideLeave = async (id, status, rejectReason = null) => {

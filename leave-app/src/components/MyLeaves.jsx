@@ -1,22 +1,30 @@
 import { useEffect, useState } from 'react'
-import { fetchMyLeaves, fetchMyCompRequests, getMedicalCertificateUrl } from '../lib/api'
-import { Badge, C, Empty, Spinner, card, formatDate } from './UI'
+import { fetchMyLeaves, fetchMyCompRequests, getMedicalCertificateUrl, cancelLeave } from '../lib/api'
+import { Badge, C, Confirm, Empty, Spinner, btnStyle, card, formatDate } from './UI'
+
+const today = new Date().toISOString().split('T')[0]
+const isCancellable = l => l.status === 'pending' || (l.status === 'approved' && l.from_date >= today)
 
 export default function MyLeaves({ employee, onToast }) {
   const [tab,      setTab]      = useState('leaves')
   const [leaves,   setLeaves]   = useState([])
   const [comps,    setComps]    = useState([])
   const [loading,  setLoading]  = useState(true)
+  const [confirmCancel, setConfirmCancel] = useState(null)
+  const [cancelling,    setCancelling]    = useState(false)
 
-  useEffect(() => {
+  const load = () => {
+    setLoading(true)
     Promise.all([
       fetchMyLeaves(employee.id),
       fetchMyCompRequests(employee.id),
     ]).then(([l, c]) => {
+      if (l.error || c.error) onToast?.((l.error || c.error).message || 'Failed to load some data', 'error')
       setLeaves(l.data || [])
       setComps(c.data || [])
     }).finally(() => setLoading(false))
-  }, [employee.id])
+  }
+  useEffect(load, [employee.id])
 
   if (loading) return <Spinner />
 
@@ -24,6 +32,16 @@ export default function MyLeaves({ employee, onToast }) {
     const { url, error } = await getMedicalCertificateUrl(value)
     if (error || !url) { onToast?.('Failed to load certificate', 'error'); return }
     window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
+  const doCancel = async () => {
+    setCancelling(true)
+    const { error } = await cancelLeave(confirmCancel.id)
+    setCancelling(false)
+    setConfirmCancel(null)
+    if (error) { onToast?.(error.message, 'error'); return }
+    onToast?.('Leave request cancelled')
+    load()
   }
 
   const TB = ({ id, label }) => (
@@ -37,6 +55,14 @@ export default function MyLeaves({ employee, onToast }) {
 
   return (
     <div>
+      {confirmCancel && (
+        <Confirm
+          msg={`Cancel your ${confirmCancel.leave_type} leave request for ${formatDate(confirmCancel.from_date)} – ${formatDate(confirmCancel.to_date)}?`}
+          onYes={doCancel}
+          onNo={() => setConfirmCancel(null)}
+        />
+      )}
+
       <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
         <TB id="leaves" label="Leave Requests" />
         <TB id="comp"   label="Comp Off" />
@@ -66,7 +92,18 @@ export default function MyLeaves({ employee, onToast }) {
                 Rejection reason: {l.reject_reason}
               </div>
             )}
-            <div style={{ fontSize: 10, color: C.textTert, marginTop: 6 }}>Applied {formatDate(l.applied_on)}</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
+              <div style={{ fontSize: 10, color: C.textTert }}>Applied {formatDate(l.applied_on)}</div>
+              {isCancellable(l) && (
+                <button
+                  onClick={() => setConfirmCancel(l)}
+                  disabled={cancelling}
+                  style={{ ...btnStyle(C.redBg, C.red), padding: '4px 10px', fontSize: 11 }}
+                >
+                  Cancel Request
+                </button>
+              )}
+            </div>
           </div>
         ))
       )}

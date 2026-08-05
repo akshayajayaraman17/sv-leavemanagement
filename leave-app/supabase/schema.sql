@@ -440,6 +440,42 @@ create policy "leave_requests_insert" on public.leave_requests for insert with c
 create policy "leave_requests_update" on public.leave_requests for update using (
   approver_id = auth.uid() or public.is_admin()
 );
+-- Employees may also reach (and, per the trigger below, only cancel) their own row
+create policy "leave_requests_cancel_own" on public.leave_requests for update using (
+  employee_id = auth.uid()
+);
+
+-- A client update reaching leave_requests_cancel_own could otherwise change
+-- any field alongside status — this trigger constrains a self-service edit
+-- to exactly one transition: pending or not-yet-started-approved → cancelled,
+-- with every other column left untouched. Approver/admin updates (approve
+-- and reject) are unaffected.
+create or replace function public.enforce_leave_cancellation()
+returns trigger language plpgsql as $$
+begin
+  if auth.uid() = old.employee_id
+     and not (auth.uid() = old.approver_id or public.is_admin())
+  then
+    if new.status is distinct from 'cancelled'
+       or old.status not in ('pending', 'approved')
+       or (old.status = 'approved' and old.from_date < current_date)
+       or new.leave_type   is distinct from old.leave_type
+       or new.from_date    is distinct from old.from_date
+       or new.to_date      is distinct from old.to_date
+       or new.days         is distinct from old.days
+       or new.reason       is distinct from old.reason
+       or new.employee_id  is distinct from old.employee_id
+       or new.approver_id  is distinct from old.approver_id
+    then
+      raise exception 'You can only cancel your own pending, or not-yet-started approved, leave requests';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+create trigger trg_enforce_leave_cancellation before update on public.leave_requests
+  for each row execute function public.enforce_leave_cancellation();
 
 -- ── comp_off_requests ──
 create policy "comp_read" on public.comp_off_requests for select using (

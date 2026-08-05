@@ -19,7 +19,7 @@ function buildGrid(year, month) {
   })
 }
 
-export default function Calendar() {
+export default function Calendar({ onToast }) {
   const [cursor,   setCursor]   = useState(() => { const d = new Date(); d.setDate(1); return d })
   const [events,   setEvents]   = useState([])
   const [holidays, setHolidays] = useState({})
@@ -40,6 +40,8 @@ export default function Calendar() {
       fetchHolidays(),
       fetchLeaveTypes(),
     ]).then(([ev, h, lt]) => {
+      const err = ev.error || h.error || lt.error
+      if (err) onToast?.(err.message || 'Failed to load calendar data', 'error')
       setEvents(ev.data || [])
       const hMap = {}
       for (const holiday of (h.data || [])) hMap[holiday.holiday_date] = holiday.name

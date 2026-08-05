@@ -62,9 +62,16 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
   useEffect(() => {
     if (isEdit) {
       fetchSalary(initial.id).then(({ data }) => setSalary(data || {}))
-      fetchApprovers(initial.id).then(({ data }) => setSelAppr((data || []).map(a => a.approver_id)))
-      fetchLeaveBalance(initial.id).then(({ data }) => setEmpBalance(data || []))
-      fetchLeaveAdjustments(initial.id).then(({ data }) => {
+      fetchApprovers(initial.id).then(({ data, error }) => {
+        if (error) onToast?.('Failed to load approvers', 'error')
+        setSelAppr((data || []).map(a => a.approver_id))
+      })
+      fetchLeaveBalance(initial.id).then(({ data, error }) => {
+        if (error) onToast?.('Failed to load leave balance', 'error')
+        setEmpBalance(data || [])
+      })
+      fetchLeaveAdjustments(initial.id).then(({ data, error }) => {
+        if (error) onToast?.('Failed to load leave adjustments', 'error')
         const adj = {}, reasons = {}
         for (const row of (data || [])) {
           adj[row.type_code]     = row.adjustment
@@ -76,7 +83,10 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
       })
     }
     setApproversState(employees.filter(e => e.id !== initial?.id))
-    fetchLeaveTypes().then(({ data }) => setLeaveTypes(data || []))
+    fetchLeaveTypes().then(({ data, error }) => {
+      if (error) onToast?.('Failed to load leave types', 'error')
+      setLeaveTypes(data || [])
+    })
   }, [initial?.id])
 
   useEffect(() => {
@@ -491,7 +501,12 @@ function HolidaysPanel({ onToast }) {
 
   const load = () => {
     setLoading(true)
-    fetchHolidays().then(({ data }) => setHolidays(data || [])).finally(() => setLoading(false))
+    fetchHolidays()
+      .then(({ data, error }) => {
+        if (error) onToast('Failed to load holidays', 'error')
+        setHolidays(data || [])
+      })
+      .finally(() => setLoading(false))
   }
   useEffect(load, [])
 
@@ -585,12 +600,17 @@ function summarizeAuditChange({ old_values, new_values }) {
   return changed.map(k => `${k}: ${old_values[k] ?? '—'} → ${new_values[k] ?? '—'}`).join(' · ')
 }
 
-function AuditLogPanel() {
+function AuditLogPanel({ onToast }) {
   const [entries, setEntries] = useState([])
   const [loading,  setLoading] = useState(true)
 
   useEffect(() => {
-    fetchAuditLog(200).then(({ data }) => setEntries(data || [])).finally(() => setLoading(false))
+    fetchAuditLog(200)
+      .then(({ data, error }) => {
+        if (error) onToast?.('Failed to load audit log', 'error')
+        setEntries(data || [])
+      })
+      .finally(() => setLoading(false))
   }, [])
 
   if (loading) return <Spinner />
@@ -702,7 +722,12 @@ export default function AdminPanel({ onToast }) {
 
   const load = () => {
     setLoading(true)
-    fetchEmployees().then(({ data }) => setEmployees(data || [])).finally(() => setLoading(false))
+    fetchEmployees()
+      .then(({ data, error }) => {
+        if (error) onToast('Failed to load employees', 'error')
+        setEmployees(data || [])
+      })
+      .finally(() => setLoading(false))
   }
   useEffect(load, [])
 
@@ -752,7 +777,7 @@ export default function AdminPanel({ onToast }) {
     return (
       <div>
         {sectionTabs}
-        <AuditLogPanel />
+        <AuditLogPanel onToast={onToast} />
       </div>
     )
   }

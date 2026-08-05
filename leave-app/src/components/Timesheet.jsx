@@ -231,7 +231,8 @@ export default function Timesheet({ employee, onToast }) {
     }
     setAttMap(map)
 
-    const { data: ents } = await fetchTimesheetEntries(ts.id)
+    const { data: ents, error: entriesErr } = await fetchTimesheetEntries(ts.id)
+    if (entriesErr) onToast?.(entriesErr.message || 'Failed to load timesheet entries', 'error')
     setEntries(ents || [])
     setLoading(false)
   }

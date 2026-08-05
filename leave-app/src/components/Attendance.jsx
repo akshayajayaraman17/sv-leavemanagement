@@ -80,7 +80,7 @@ function calcHoursFromPunches(punches) {
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
-export default function Attendance({ employee }) {
+export default function Attendance({ employee, onToast }) {
   const [record,      setRecord]      = useState(null)   // today's attendance record
   const [punches,     setPunches]     = useState([])      // today's punch events
   const [history,     setHistory]     = useState([])
@@ -96,11 +96,13 @@ export default function Attendance({ employee }) {
 
   const load = async () => {
     setLoading(true)
-    const [{ data: rec }, { data: hist }, { data: regData }] = await Promise.all([
+    const [{ data: rec, error: recErr }, { data: hist, error: histErr }, { data: regData, error: regErr }] = await Promise.all([
       fetchTodayAttendance(employee.id),
       fetchAttendanceHistory(employee.id, 30),
       fetchMyRegularizations(employee.id),
     ])
+    const err = recErr || histErr || regErr
+    if (err) onToast?.(err.message || 'Failed to load attendance data', 'error')
     setRecord(rec || null)
     setHistory(hist || [])
     setRegs(regData || [])

@@ -150,14 +150,14 @@ export default function App() {
         <div className="app-content">
           <div className="content-max">
             <ErrorBoundary key={tab}>
-              {tab === 'dash'       && <Dashboard     employee={employee} />}
-              {tab === 'notifications' && <Notifications employee={employee} />}
-              {tab === 'attendance' && <Attendance   employee={employee} />}
+              {tab === 'dash'       && <Dashboard     employee={employee} onToast={showToast} />}
+              {tab === 'notifications' && <Notifications employee={employee} onToast={showToast} />}
+              {tab === 'attendance' && <Attendance   employee={employee} onToast={showToast} />}
               {tab === 'timesheet'  && <Timesheet    employee={employee} onToast={showToast} />}
               {tab === 'apply'      && <ApplyLeave   employee={employee} onToast={showToast} />}
               {tab === 'comp'       && <ApplyCompOff employee={employee} onToast={showToast} />}
               {tab === 'history'    && <MyLeaves     employee={employee} onToast={showToast} />}
-              {tab === 'calendar'   && <Calendar />}
+              {tab === 'calendar'   && <Calendar     onToast={showToast} />}
               {tab === 'approvals'  && <Approvals    employee={employee} onToast={showToast} />}
               {tab === 'admin'      && <AdminPanel   onToast={showToast} />}
               {tab === 'team'       && <Team          viewer={employee} onToast={showToast} />}

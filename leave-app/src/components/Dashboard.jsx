@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { fetchLeaveBalance, fetchMyLeaves, fetchMyCompRequests } from '../lib/api'
 import { Avatar, Badge, C, SecTitle, Spinner, card, formatDate } from './UI'
 
-export default function Dashboard({ employee }) {
+export default function Dashboard({ employee, onToast }) {
   const [balances,  setBalances]  = useState([])
   const [leaves,    setLeaves]    = useState([])
   const [compReqs,  setCompReqs]  = useState([])
@@ -14,6 +14,8 @@ export default function Dashboard({ employee }) {
       fetchMyLeaves(employee.id),
       fetchMyCompRequests(employee.id),
     ]).then(([b, l, c]) => {
+      const err = b.error || l.error || c.error
+      if (err) onToast?.(err.message || 'Failed to load some data', 'error')
       setBalances(b.data || [])
       setLeaves((l.data || []).slice(0, 4))
       setCompReqs((c.data || []).filter(x => x.status === 'pending'))

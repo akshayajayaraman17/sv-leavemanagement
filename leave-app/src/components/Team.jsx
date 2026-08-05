@@ -48,13 +48,14 @@ function EmployeeDetail({ emp, viewerRole, allEmployees, onBack, onToast }) {
 
   useEffect(() => {
     setLoading(true)
+    const report = (label) => ({ error }) => { if (error) onToast?.(`Failed to load ${label}`, 'error') }
     const calls = [
-      fetchLeaveBalance(emp.id).then(({ data }) => setBalances(data || [])),
-      fetchMyLeaves(emp.id).then(({ data }) => setLeaves(data || [])),
-      fetchTimesheetHistory(emp.id).then(({ data }) => setTimesheets(data || [])),
-      fetchAttendanceHistory(emp.id, 30).then(({ data }) => setAttendance(data || [])),
+      fetchLeaveBalance(emp.id).then(r => { report('leave balance')(r); setBalances(r.data || []) }),
+      fetchMyLeaves(emp.id).then(r => { report('leave history')(r); setLeaves(r.data || []) }),
+      fetchTimesheetHistory(emp.id).then(r => { report('timesheets')(r); setTimesheets(r.data || []) }),
+      fetchAttendanceHistory(emp.id, 30).then(r => { report('attendance')(r); setAttendance(r.data || []) }),
     ]
-    if (isAdmin) calls.push(fetchSalary(emp.id).then(({ data }) => setSalary(data)))
+    if (isAdmin) calls.push(fetchSalary(emp.id).then(r => { setSalary(r.data) }))
     Promise.all(calls).finally(() => setLoading(false))
   }, [emp.id])
 
@@ -330,7 +331,10 @@ export default function Team({ viewer, onToast }) {
 
   useEffect(() => {
     fetchEmployees()
-      .then(({ data }) => setEmployees((data || []).filter(e => e.id !== viewer.id)))
+      .then(({ data, error }) => {
+        if (error) onToast?.(error.message || 'Failed to load team', 'error')
+        setEmployees((data || []).filter(e => e.id !== viewer.id))
+      })
       .finally(() => setLoading(false))
   }, [viewer.id])
 

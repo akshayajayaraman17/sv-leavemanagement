@@ -34,6 +34,8 @@ export function ApplyLeave({ employee, onToast }) {
       getApproverForEmployee(employee.id),
       fetchHolidays(),
     ]).then(([b, e, a, h]) => {
+      const err = b.error || e.error || h.error
+      if (err) onToast?.(err.message || 'Failed to load some data', 'error')
       setBalances(b.data || [])
       const apprId = a.data
       if (apprId) setApprover((e.data || []).find(x => x.id === apprId) || null)
@@ -210,6 +212,8 @@ export function ApplyCompOff({ employee, onToast }) {
       fetchMyCompRequests(employee.id),
       fetchHolidays(),
     ]).then(([e, a, cr, h]) => {
+      const err = e.error || cr.error || h.error
+      if (err) onToast?.(err.message || 'Failed to load some data', 'error')
       setExisting(cr.data || [])
       const apprId = a.data
       if (apprId) setApprover((e.data || []).find(x => x.id === apprId) || null)
