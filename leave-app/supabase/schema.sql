@@ -27,6 +27,7 @@ create table public.employees (
   ) stored,
   is_active       boolean not null default true,
   address         text,
+  date_of_birth   date,
   must_change_password boolean not null default false,
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now()
@@ -423,7 +424,7 @@ begin
        or new.manager_id      is distinct from old.manager_id
        or new.is_active       is distinct from old.is_active
     then
-      raise exception 'You can only update your own phone, address, and password-change status';
+      raise exception 'You can only update your own phone, address, date of birth, and password-change status';
     end if;
   end if;
   return new;

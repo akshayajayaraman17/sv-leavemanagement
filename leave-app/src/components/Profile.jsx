@@ -7,10 +7,12 @@ const ROLE_LABEL = { admin: 'Admin', manager: 'Manager', employee: 'Employee' }
 
 export default function Profile({ employee, onToast }) {
   const [form, setForm] = useState({
-    phone:   employee.phone   || '',
-    address: employee.address || '',
+    phone:         employee.phone         || '',
+    address:       employee.address       || '',
+    date_of_birth: employee.date_of_birth || '',
   })
   const [saving, setSaving] = useState(false)
+  const today = new Date().toISOString().split('T')[0]
 
   // Change password state
   const [pw, setPw]         = useState({ current: '', newPw: '', confirm: '' })
@@ -21,8 +23,9 @@ export default function Profile({ employee, onToast }) {
   const saveProfile = async () => {
     setSaving(true)
     const { error } = await updateProfile(employee.id, {
-      phone:   form.phone.trim()   || null,
-      address: form.address.trim() || null,
+      phone:         form.phone.trim() || null,
+      address:       form.address.trim() || null,
+      date_of_birth: form.date_of_birth || null,
     })
     setSaving(false)
     if (error) { onToast(error.message, 'error'); return }
@@ -118,6 +121,15 @@ export default function Profile({ employee, onToast }) {
             onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
             placeholder="Your home / current address"
             style={{ ...inputStyle(), resize: 'vertical' }}
+          />
+        </Field>
+        <Field label="Date of Birth" hint="Shown to coworkers on the dashboard during your birthday month">
+          <input
+            type="date"
+            value={form.date_of_birth}
+            max={today}
+            onChange={e => setForm(f => ({ ...f, date_of_birth: e.target.value }))}
+            style={inputStyle()}
           />
         </Field>
         <button

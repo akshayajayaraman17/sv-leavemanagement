@@ -40,7 +40,7 @@ serve(async (req) => {
     const {
       email, password, full_name, employee_code,
       phone, department, designation, role,
-      joining_date, manager_id,
+      joining_date, date_of_birth, manager_id,
     } = body;
 
     // 1. Create auth user
@@ -66,6 +66,7 @@ serve(async (req) => {
         designation: designation || null,
         role: role || "employee",
         joining_date,
+        date_of_birth: date_of_birth || null,
         manager_id: manager_id || null,
         // The admin set (or, for bulk import, chose/generated) this
         // password directly, so it's known outside the employee's own

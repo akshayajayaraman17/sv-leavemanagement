@@ -16,6 +16,7 @@ const TEMPLATE_COLUMNS = [
   { key: 'designation', label: 'designation' },
   { key: 'role', label: 'role' },
   { key: 'joining_date', label: 'joining_date' },
+  { key: 'date_of_birth', label: 'date_of_birth' },
   { key: 'manager_employee_code', label: 'manager_employee_code' },
 ]
 
@@ -23,7 +24,7 @@ function downloadTemplate() {
   const example = {
     full_name: 'Jane Smith', email: 'jane@company.com', employee_code: '',
     department: 'Engineering', designation: 'Software Engineer', role: 'employee',
-    joining_date: today, manager_employee_code: '',
+    joining_date: today, date_of_birth: '', manager_employee_code: '',
   }
   downloadCsv('employee-import-template.csv', rowsToCsv([example], TEMPLATE_COLUMNS))
 }
@@ -49,6 +50,7 @@ function validateRows(rawRows, existingEmployees) {
     const designation = (r.designation || '').trim()
     let role = (r.role || 'employee').trim().toLowerCase()
     let joining_date = (r.joining_date || today).trim()
+    let date_of_birth = (r.date_of_birth || '').trim()
     const managerCode = (r.manager_employee_code || '').trim()
 
     if (!full_name) errors.push('Full name is required')
@@ -73,6 +75,16 @@ function validateRows(rawRows, existingEmployees) {
       joining_date = today
     }
 
+    if (date_of_birth) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date_of_birth) || Number.isNaN(new Date(date_of_birth).getTime())) {
+        warnings.push('Invalid date of birth (use YYYY-MM-DD) — left blank')
+        date_of_birth = ''
+      } else if (date_of_birth > today) {
+        warnings.push('Date of birth is in the future — left blank')
+        date_of_birth = ''
+      }
+    }
+
     let manager_id = null
     if (managerCode) {
       const mgr = existingEmployees.find(e => e.employee_code === managerCode)
@@ -85,7 +97,7 @@ function validateRows(rawRows, existingEmployees) {
 
     return {
       rowNum: i + 2, // header is row 1
-      full_name, email, employee_code, department, designation, role, joining_date, manager_id,
+      full_name, email, employee_code, department, designation, role, joining_date, date_of_birth, manager_id,
       errors, warnings,
     }
   })
@@ -133,6 +145,7 @@ export default function BulkAddEmployees({ employees, onBack, onDone, onToast })
         designation: row.designation || null,
         role: row.role,
         joining_date: row.joining_date,
+        date_of_birth: row.date_of_birth || null,
         manager_id: row.manager_id,
       })
       out.push({
@@ -174,10 +187,11 @@ export default function BulkAddEmployees({ employees, onBack, onDone, onToast })
             <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>How it works</div>
             <div style={{ fontSize: 12, color: C.textSec, lineHeight: 1.6 }}>
               Upload a CSV of new hires. Only <strong>full_name</strong> and <strong>email</strong> are required —
-              employee code auto-generates if left blank, and role/joining date default sensibly. You'll choose a
-              random-per-employee or shared initial password on the next screen, and see/export it after creation.
-              Everyone created here is required to set their own password on first login.
-              A manager must already exist in the system — reference them by employee code.
+              employee code auto-generates if left blank, and role/joining date default sensibly.
+              <strong> date_of_birth</strong> is optional (YYYY-MM-DD) — set it to have that person show up in the
+              dashboard's birthday list. You'll choose a random-per-employee or shared initial password on the next
+              screen, and see/export it after creation. Everyone created here is required to set their own password
+              on first login. A manager must already exist in the system — reference them by employee code.
             </div>
           </div>
 

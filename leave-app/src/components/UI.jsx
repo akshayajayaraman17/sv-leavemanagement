@@ -166,3 +166,8 @@ export function formatDate(s) {
   if (!s) return '—'
   return new Date(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
 }
+
+export function formatDayMonth(s) {
+  if (!s) return '—'
+  return new Date(s + 'T12:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+}

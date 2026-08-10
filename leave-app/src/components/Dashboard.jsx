@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
-import { fetchLeaveBalance, fetchMyLeaves, fetchMyCompRequests } from '../lib/api'
-import { Avatar, Badge, C, SecTitle, Spinner, card, formatDate } from './UI'
+import { fetchLeaveBalance, fetchMyLeaves, fetchMyCompRequests, fetchHolidays, fetchBirthdays } from '../lib/api'
+import { Avatar, Badge, C, SecTitle, Spinner, card, formatDate, formatDayMonth } from './UI'
 
 export default function Dashboard({ employee, onToast }) {
   const [balances,  setBalances]  = useState([])
   const [leaves,    setLeaves]    = useState([])
   const [compReqs,  setCompReqs]  = useState([])
+  const [holidays,  setHolidays]  = useState([])
+  const [birthdays, setBirthdays] = useState([])
   const [loading,   setLoading]   = useState(true)
 
   useEffect(() => {
@@ -13,16 +15,32 @@ export default function Dashboard({ employee, onToast }) {
       fetchLeaveBalance(employee.id),
       fetchMyLeaves(employee.id),
       fetchMyCompRequests(employee.id),
-    ]).then(([b, l, c]) => {
-      const err = b.error || l.error || c.error
+      fetchHolidays(),
+      fetchBirthdays(),
+    ]).then(([b, l, c, h, bd]) => {
+      const err = b.error || l.error || c.error || h.error || bd.error
       if (err) onToast?.(err.message || 'Failed to load some data', 'error')
       setBalances(b.data || [])
       setLeaves((l.data || []).slice(0, 4))
       setCompReqs((c.data || []).filter(x => x.status === 'pending'))
+      setHolidays(h.data || [])
+      setBirthdays(bd.data || [])
     }).finally(() => setLoading(false))
   }, [employee.id])
 
   if (loading) return <Spinner />
+
+  const now = new Date()
+  const curMonth = now.getMonth()
+  const todayStr = now.toISOString().split('T')[0]
+
+  const holidaysThisMonth = holidays
+    .filter(h => h.holiday_date >= todayStr && new Date(h.holiday_date + 'T12:00:00').getMonth() === curMonth)
+    .sort((a, b) => a.holiday_date.localeCompare(b.holiday_date))
+
+  const birthdaysThisMonth = birthdays
+    .filter(b => new Date(b.date_of_birth + 'T12:00:00').getMonth() === curMonth)
+    .sort((a, b) => new Date(a.date_of_birth + 'T12:00:00').getDate() - new Date(b.date_of_birth + 'T12:00:00').getDate())
 
   return (
     <div>
@@ -59,6 +77,37 @@ export default function Dashboard({ employee, onToast }) {
             </div>
           )
         })}
+      </div>
+
+      {(holidaysThisMonth.length > 0 || birthdaysThisMonth.length > 0) && (
+        <SecTitle>This Month</SecTitle>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: holidaysThisMonth.length && birthdaysThisMonth.length ? '1fr 1fr' : '1fr', gap: 10, marginBottom: 22 }}>
+        {holidaysThisMonth.length > 0 && (
+          <div style={card}>
+            <div style={{ fontSize: 11, color: C.textSec, marginBottom: 8 }}>📅 Upcoming Holidays</div>
+            {holidaysThisMonth.map(h => (
+              <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '5px 0' }}>
+                <span style={{ fontSize: 13 }}>{h.name}</span>
+                <span style={{ fontSize: 11, color: C.textTert, flexShrink: 0, marginLeft: 8 }}>{formatDayMonth(h.holiday_date)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {birthdaysThisMonth.length > 0 && (
+          <div style={card}>
+            <div style={{ fontSize: 11, color: C.textSec, marginBottom: 8 }}>🎂 Birthdays</div>
+            {birthdaysThisMonth.map(b => (
+              <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0' }}>
+                <Avatar initials={b.avatar_initials} size={22} color={C.purple} bg={C.purpleBg} />
+                <span style={{ fontSize: 13, flex: 1, minWidth: 0 }}>
+                  {b.full_name}{b.id === employee.id ? ' (You)' : ''}
+                </span>
+                <span style={{ fontSize: 11, color: C.textTert, flexShrink: 0 }}>{formatDayMonth(b.date_of_birth)}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {compReqs.length > 0 && <>

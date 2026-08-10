@@ -46,6 +46,7 @@ export const createEmployee = async (payload) => {
       designation: payload.designation || null,
       role: payload.role || 'employee',
       joining_date: payload.joining_date,
+      date_of_birth: payload.date_of_birth || null,
       manager_id: payload.manager_id || null,
     },
   })
@@ -589,6 +590,16 @@ export const deleteHoliday = async (id) => {
     .delete()
     .eq('id', id)
   return { error }
+}
+
+// ─── Birthdays ──────────────────────────────────────────────────────────────
+export const fetchBirthdays = async () => {
+  const { data, error } = await supabase
+    .from('employees')
+    .select('id, full_name, avatar_initials, date_of_birth')
+    .eq('is_active', true)
+    .not('date_of_birth', 'is', null)
+  return { data, error }
 }
 
 // ─── Leave adjustments (admin) ────────────────────────────────────────────────
