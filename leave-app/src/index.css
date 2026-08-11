@@ -79,6 +79,18 @@ button:focus-visible, [role="button"]:focus-visible {
   z-index: 10;
 }
 
+/* Admin Employees table — desktop only (card list is the mobile default,
+   no override needed below this breakpoint). Declared before the ≥768px
+   media query below so that query's display:table/block can actually
+   take effect — same-specificity CSS rules are resolved by source order,
+   so a later unconditional rule would otherwise always win. */
+.admin-emp-table-wrap {
+  display: none;
+}
+.admin-emp-table {
+  display: none;
+}
+
 /* ── Desktop breakpoint (≥768px) ───────────────────────────────────────────── */
 @media (min-width: 768px) {
   .app-shell {
@@ -198,13 +210,7 @@ button:focus-visible, [role="button"]:focus-visible {
   }
 }
 
-/* Admin Employees table — mobile default is the card list; the table itself
-   only becomes visible at the ≥768px breakpoint above. */
-.admin-emp-table-wrap {
-  display: none;
-}
 .admin-emp-table {
-  display: none;
   width: 100%;
   border-collapse: collapse;
 }
