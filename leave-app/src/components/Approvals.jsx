@@ -24,6 +24,7 @@ export default function Approvals({ employee, onToast }) {
   const [bulkBusy,   setBulkBusy] = useState(false)
   const [bulkRejecting, setBulkRejecting] = useState(false)
   const [bulkRejectReason, setBulkRejectReason] = useState('')
+  const [bulkRejectItems, setBulkRejectItems] = useState({}) // per-item override, keyed by id
 
   const TAB_LABEL = { comp: 'comp off request', leaves: 'leave request', timesheets: 'timesheet', regs: 'regularization' }
   const currentList = tab === 'comp' ? comps : tab === 'leaves' ? leaves : tab === 'timesheets' ? timesheets : regs
@@ -34,6 +35,7 @@ export default function Approvals({ employee, onToast }) {
     setSelected(new Set())
     setBulkRejecting(false)
     setBulkRejectReason('')
+    setBulkRejectItems({})
   }
 
   const toggleSelected = (id) => {
@@ -51,13 +53,16 @@ export default function Approvals({ employee, onToast }) {
     if (status === 'rejected' && needsReason && !bulkRejectReason.trim()) { setBulkRejecting(true); return }
     setBulkBusy(true)
     const ids = Array.from(selected)
-    const reason = bulkRejectReason.trim() || null
+    const sharedReason = bulkRejectReason.trim() || null
+    // Per-item override wins over the shared reason when the approver typed
+    // one for that specific row.
+    const reasonFor = (id) => (bulkRejectItems[id]?.trim() || sharedReason)
 
     const results = await Promise.all(ids.map(async (id) => {
       if (tab === 'comp')       return { id, ...(await decideCompOff(id, status)) }
       if (tab === 'leaves')     return { id, ...(await decideLeave(id, status)) }
-      if (tab === 'timesheets') return { id, ...(await decideTimesheet(id, status, status === 'rejected' ? reason : null)) }
-      const res = await decideRegularization(id, status, status === 'rejected' ? reason : null)
+      if (tab === 'timesheets') return { id, ...(await decideTimesheet(id, status, status === 'rejected' ? reasonFor(id) : null)) }
+      const res = await decideRegularization(id, status, status === 'rejected' ? reasonFor(id) : null)
       if (!res.error && status === 'approved') {
         const reg = regs.find(r => r.id === id)
         if (reg) await updateAttendanceStatus(reg.attendance_id, 'present')
@@ -76,6 +81,7 @@ export default function Approvals({ employee, onToast }) {
     setBulkBusy(false)
     setBulkRejecting(false)
     setBulkRejectReason('')
+    setBulkRejectItems({})
     setSelected(new Set())
 
     if (succeeded.size) onToast(`${succeeded.size} ${TAB_LABEL[tab]}${succeeded.size > 1 ? 's' : ''} ${status}${failed ? ` — ${failed} failed` : ''}`)
@@ -337,6 +343,14 @@ export default function Approvals({ employee, onToast }) {
                 />
               </div>
             )}
+            {bulkRejecting && selected.has(r.id) && (
+              <input
+                value={bulkRejectItems[r.id] || ''}
+                onChange={e => setBulkRejectItems(p => ({ ...p, [r.id]: e.target.value }))}
+                placeholder="Override reason for this item (optional)"
+                style={{ ...inputStyle(), marginBottom: 10, fontSize: 12 }}
+              />
+            )}
             <div style={{ display: 'flex', gap: 8 }}>
               <button
                 onClick={() => handleRegularization(r, 'approved')}
@@ -447,6 +461,14 @@ export default function Approvals({ employee, onToast }) {
                     style={{ ...inputStyle(true), marginBottom: 8 }}
                   />
                 </div>
+              )}
+              {bulkRejecting && selected.has(ts.id) && (
+                <input
+                  value={bulkRejectItems[ts.id] || ''}
+                  onChange={e => setBulkRejectItems(p => ({ ...p, [ts.id]: e.target.value }))}
+                  placeholder="Override reason for this item (optional)"
+                  style={{ ...inputStyle(), marginBottom: 10, fontSize: 12 }}
+                />
               )}
 
               <div style={{ display: 'flex', gap: 8 }}>

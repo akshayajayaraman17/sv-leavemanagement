@@ -1,10 +1,11 @@
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { useAuth } from './lib/AuthContext'
 import Login from './components/Login'
 import ForcePasswordChange from './components/ForcePasswordChange'
 import ErrorBoundary from './components/ErrorBoundary'
 import { Toast, C, Spinner, Avatar } from './components/UI'
 import { signOut } from './lib/api'
+import { fetchNotificationFeed, getNotifSeenAt } from './lib/notifications'
 
 // Tab content is lazy-loaded — only the shell + whichever tab is active
 // need to be in the initial bundle.
@@ -75,10 +76,33 @@ export default function App() {
   const { employee, loading } = useAuth()
   const [tab,   setTab]   = useState('dash')
   const [toast, setToast] = useState(null)
+  const [hasUnread, setHasUnread] = useState(false)
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type })
     setTimeout(() => setToast(null), 3500)
+  }
+
+  // Check once per session/employee whether anything's arrived since the
+  // last Notifications visit, to light up the bell icon before the user
+  // opens that tab. Re-checked whenever the employee changes; cleared
+  // immediately (optimistically) once the user opens the tab itself —
+  // Notifications.jsx advances the actual "seen" cursor once its own
+  // fetch resolves.
+  useEffect(() => {
+    if (!employee) return
+    let cancelled = false
+    fetchNotificationFeed(employee).then(({ feed }) => {
+      if (cancelled) return
+      const seenAt = getNotifSeenAt()
+      setHasUnread(feed.some(n => n.pinned || (n.date && new Date(n.date).getTime() > seenAt)))
+    })
+    return () => { cancelled = true }
+  }, [employee?.id])
+
+  const goTab = (id) => {
+    setTab(id)
+    if (id === 'notifications') setHasUnread(false)
   }
 
   if (loading) return (
@@ -114,11 +138,15 @@ export default function App() {
           {tabs.map(t => (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => goTab(t.id)}
               className={`sidebar-nav-item${tab === t.id ? ' active' : ''}`}
+              style={{ position: 'relative' }}
             >
               <span className="sidebar-nav-icon">{t.icon}</span>
               {t.label}
+              {t.id === 'notifications' && hasUnread && (
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.red, marginLeft: 'auto' }} />
+              )}
             </button>
           ))}
         </nav>
@@ -158,7 +186,7 @@ export default function App() {
           <div className="content-max">
             <ErrorBoundary key={tab}>
               <Suspense fallback={<Spinner />}>
-                {tab === 'dash'       && <Dashboard     employee={employee} onToast={showToast} />}
+                {tab === 'dash'       && <Dashboard     employee={employee} onToast={showToast} onNavigate={goTab} />}
                 {tab === 'notifications' && <Notifications employee={employee} onToast={showToast} />}
                 {tab === 'attendance' && <Attendance   employee={employee} onToast={showToast} />}
                 {tab === 'timesheet'  && <Timesheet    employee={employee} onToast={showToast} />}
@@ -181,9 +209,12 @@ export default function App() {
           {tabs.map(t => {
             const active = tab === t.id
             return (
-              <button key={t.id} onClick={() => setTab(t.id)} style={{ flex: 1, background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: '4px 0' }}>
+              <button key={t.id} onClick={() => goTab(t.id)} style={{ flex: 1, background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: '4px 0', position: 'relative' }}>
                 <span style={{ fontSize: 15, color: active ? C.green : C.textTert }}>{t.icon}</span>
                 <span style={{ fontSize: 9, fontWeight: active ? 500 : 400, color: active ? C.green : C.textTert }}>{t.label}</span>
+                {t.id === 'notifications' && hasUnread && (
+                  <span style={{ position: 'absolute', top: 2, right: '30%', width: 6, height: 6, borderRadius: '50%', background: C.red }} />
+                )}
               </button>
             )
           })}

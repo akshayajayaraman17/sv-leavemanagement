@@ -185,11 +185,14 @@ export const fetchMyLeaves = async (employeeId) => {
 }
 
 // Admin-only (relies on the leave_requests_read RLS policy's is_admin() clause)
-export const fetchAllLeaveRequests = async () => {
-  const { data, error } = await supabase
+export const fetchAllLeaveRequests = async ({ from, to } = {}) => {
+  let query = supabase
     .from('leave_requests')
     .select('*, employee:employee_id(full_name, employee_code, department)')
     .order('applied_on', { ascending: false })
+  if (from) query = query.gte('from_date', from)
+  if (to)   query = query.lte('from_date', to)
+  const { data, error } = await query
   return { data, error }
 }
 
@@ -334,12 +337,14 @@ export const fetchAttendanceHistory = async (employeeId, limit = 20) => {
   return { data, error }
 }
 
-export const fetchAllAttendance = async (limit = 100) => {
-  const { data, error } = await supabase
+export const fetchAllAttendance = async (limit = 100, { from, to } = {}) => {
+  let query = supabase
     .from('attendance')
     .select('*, employee:employee_id(full_name, avatar_initials, department)')
     .order('date', { ascending: false })
-    .limit(limit)
+  if (from) query = query.gte('date', from)
+  if (to)   query = query.lte('date', to)
+  const { data, error } = await query.limit(limit)
   return { data, error }
 }
 

@@ -487,9 +487,9 @@ export default function Team({ viewer, onToast }) {
         filtered.map(e => {
           const mgr = employees.find(x => x.id === e.manager_id)
           return (
-            <div
+            <button
               key={e.id}
-              style={{ ...card, marginBottom: 10, cursor: 'pointer' }}
+              style={{ ...card, marginBottom: 10, cursor: 'pointer', display: 'block', width: '100%', textAlign: 'left', fontFamily: 'inherit' }}
               onClick={() => setSelected(e)}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -523,7 +523,7 @@ export default function Team({ viewer, onToast }) {
                   </div>
                 </div>
               </div>
-            </div>
+            </button>
           )
         })
       }

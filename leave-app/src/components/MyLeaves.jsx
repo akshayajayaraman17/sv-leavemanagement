@@ -12,6 +12,8 @@ export default function MyLeaves({ employee, onToast }) {
   const [loading,  setLoading]  = useState(true)
   const [confirmCancel, setConfirmCancel] = useState(null)
   const [cancelling,    setCancelling]    = useState(false)
+  const [yearFilter,   setYearFilter]   = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
 
   const load = () => {
     setLoading(true)
@@ -44,6 +46,19 @@ export default function MyLeaves({ employee, onToast }) {
     load()
   }
 
+  const years = Array.from(new Set([...leaves, ...comps].map(x => (x.from_date || x.worked_date || '').slice(0, 4)).filter(Boolean))).sort((a, b) => b - a)
+  const filteredLeaves = leaves
+    .filter(l => yearFilter === 'all' || l.from_date?.slice(0, 4) === yearFilter)
+    .filter(l => statusFilter === 'all' || l.status === statusFilter)
+  const filteredComps = comps
+    .filter(c => yearFilter === 'all' || c.worked_date?.slice(0, 4) === yearFilter)
+    .filter(c => statusFilter === 'all' || c.status === statusFilter)
+
+  const filterSelect = {
+    padding: '7px 10px', fontSize: 12, fontFamily: 'inherit',
+    border: `0.5px solid ${C.borderMed}`, borderRadius: 8, background: C.bg, color: C.text,
+  }
+
   const TB = ({ id, label }) => (
     <button onClick={() => setTab(id)} style={{
       padding: '7px 16px', fontSize: 12, fontWeight: 500, borderRadius: 20,
@@ -63,14 +78,28 @@ export default function MyLeaves({ employee, onToast }) {
         />
       )}
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
         <TB id="leaves" label="Leave Requests" />
         <TB id="comp"   label="Comp Off" />
       </div>
 
+      <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
+        <select value={yearFilter} onChange={e => setYearFilter(e.target.value)} style={filterSelect}>
+          <option value="all">All years</option>
+          {years.map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={filterSelect}>
+          <option value="all">All statuses</option>
+          <option value="approved">Approved</option>
+          <option value="pending">Pending</option>
+          <option value="rejected">Rejected</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+      </div>
+
       {tab === 'leaves' && (
-        leaves.length === 0 ? <Empty text="No leave requests yet" /> :
-        leaves.map(l => (
+        filteredLeaves.length === 0 ? <Empty text={leaves.length === 0 ? 'No leave requests yet' : 'No leave requests match these filters'} /> :
+        filteredLeaves.map(l => (
           <div key={l.id} style={{ ...card, marginBottom: 10 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
               <span style={{ fontSize: 14, fontWeight: 500, textTransform: 'capitalize' }}>{l.leave_type} Leave</span>
@@ -109,8 +138,8 @@ export default function MyLeaves({ employee, onToast }) {
       )}
 
       {tab === 'comp' && (
-        comps.length === 0 ? <Empty text="No comp off requests yet" /> :
-        comps.map(c => (
+        filteredComps.length === 0 ? <Empty text={comps.length === 0 ? 'No comp off requests yet' : 'No comp off requests match these filters'} /> :
+        filteredComps.map(c => (
           <div key={c.id} style={{ ...card, marginBottom: 10 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
               <div>

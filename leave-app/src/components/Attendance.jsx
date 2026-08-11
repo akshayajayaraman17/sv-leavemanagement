@@ -6,7 +6,7 @@ import {
   createRegularization, fetchMyRegularizations,
   updateAttendanceStatus, getApproverForEmployee,
 } from '../lib/api'
-import { C, SecTitle, Spinner, card, formatDate, Field, btnStyle, inputStyle } from './UI'
+import { Badge, C, SecTitle, Spinner, card, formatDate, Field, btnStyle, inputStyle } from './UI'
 
 const MIN_HOURS = 8
 
@@ -89,6 +89,9 @@ export default function Attendance({ employee, onToast }) {
   const [locErr,      setLocErr]      = useState('')
   const [regForm,     setRegForm]     = useState(null)    // { attendanceId, reason, checkOutTime }
   const [regSaving,   setRegSaving]   = useState(false)
+  const [geoDenied,      setGeoDenied]      = useState(false)
+  const [manualLocation, setManualLocation] = useState('')
+  const [manualNotes,    setManualNotes]    = useState('')
 
   const weekDays = getWeekDays()
   const todayStr = new Date().toISOString().split('T')[0]
@@ -123,45 +126,78 @@ export default function Attendance({ employee, onToast }) {
   const hasAnyPunch = punches.length > 0
   const sessionCount = punches.filter(p => p.punch_type === 'check_in').length
 
+  // Shared write path for check-in, used whether the coordinates came from
+  // the device's geolocation or were entered manually (lat/lng null).
+  const writeCheckIn = async (lat, lng, address) => {
+    const now = new Date().toISOString()
+    const prevHours = record?.total_hours || 0
+    const { data, error } = await checkIn({
+      employee_id: employee.id,
+      date: todayStr,
+      check_in_time: now,
+      check_in_lat: lat,
+      check_in_lng: lng,
+      check_in_address: address,
+      check_out_time: null,
+      check_out_lat: null,
+      check_out_lng: null,
+      check_out_address: null,
+      total_hours: prevHours,
+      status: 'present',
+    })
+    if (error) { setLocErr(error.message); return }
+
+    await addPunch({
+      attendance_id: data.id,
+      employee_id: employee.id,
+      punch_type: 'check_in',
+      punch_time: now,
+      lat, lng, address,
+    })
+
+    setRecord(data)
+    await load()
+  }
+
+  // Shared write path for check-out, same lat/lng-nullable shape as above.
+  const writeCheckOut = async (lat, lng, address) => {
+    const now = new Date()
+    await addPunch({
+      attendance_id: record.id,
+      employee_id: employee.id,
+      punch_type: 'check_out',
+      punch_time: now.toISOString(),
+      lat, lng, address,
+    })
+
+    // Recalculate total hours from all punches (the checkout punch above is already included)
+    const { data: allPunches } = await fetchPunches(record.id)
+    const totalHours = calcHoursFromPunches(allPunches || [])
+
+    const { data, error } = await checkOut(record.id, {
+      check_out_time: now.toISOString(),
+      check_out_lat: lat,
+      check_out_lng: lng,
+      check_out_address: address,
+      total_hours: totalHours,
+    })
+    if (error) { setLocErr(error.message); return }
+
+    setRecord(data)
+    await load()
+  }
+
   const handleCheckIn = async () => {
     setLocErr('')
     setLocating(true)
     try {
       const { lat, lng } = await getLocation()
       const address = await reverseGeocode(lat, lng)
-      const now = new Date().toISOString()
-
-      // Create or update attendance record
-      const prevHours = record?.total_hours || 0
-      const { data, error } = await checkIn({
-        employee_id: employee.id,
-        date: todayStr,
-        check_in_time: now,
-        check_in_lat: lat,
-        check_in_lng: lng,
-        check_in_address: address,
-        check_out_time: null,
-        check_out_lat: null,
-        check_out_lng: null,
-        check_out_address: null,
-        total_hours: prevHours,
-        status: 'present',
-      })
-      if (error) { setLocErr(error.message); return }
-
-      // Add punch record
-      await addPunch({
-        attendance_id: data.id,
-        employee_id: employee.id,
-        punch_type: 'check_in',
-        punch_time: now,
-        lat, lng, address,
-      })
-
-      setRecord(data)
-      await load()
+      await writeCheckIn(lat, lng, address)
+      setGeoDenied(false)
     } catch (e) {
       setLocErr(e.message)
+      setGeoDenied(true)
     } finally {
       setLocating(false)
     }
@@ -174,34 +210,32 @@ export default function Attendance({ employee, onToast }) {
     try {
       const { lat, lng } = await getLocation()
       const address = await reverseGeocode(lat, lng)
-      const now = new Date()
-
-      // Add punch record first
-      await addPunch({
-        attendance_id: record.id,
-        employee_id: employee.id,
-        punch_type: 'check_out',
-        punch_time: now.toISOString(),
-        lat, lng, address,
-      })
-
-      // Recalculate total hours from all punches (the checkout punch above is already included)
-      const { data: allPunches } = await fetchPunches(record.id)
-      const totalHours = calcHoursFromPunches(allPunches || [])
-
-      const { data, error } = await checkOut(record.id, {
-        check_out_time: now.toISOString(),
-        check_out_lat: lat,
-        check_out_lng: lng,
-        check_out_address: address,
-        total_hours: totalHours,
-      })
-      if (error) { setLocErr(error.message); return }
-
-      setRecord(data)
-      await load()
+      await writeCheckOut(lat, lng, address)
+      setGeoDenied(false)
     } catch (e) {
       setLocErr(e.message)
+      setGeoDenied(true)
+    } finally {
+      setLocating(false)
+    }
+  }
+
+  // Manual fallback when geolocation is denied/unavailable — same write
+  // path, just with no coordinates and an operator-entered address.
+  const handleManualSubmit = async () => {
+    if (!manualLocation.trim()) { setLocErr('Enter a location.'); return }
+    setLocErr('')
+    setLocating(true)
+    try {
+      const address = manualNotes.trim() ? `${manualLocation.trim()} — ${manualNotes.trim()}` : manualLocation.trim()
+      if (hasAnyPunch && isCurrentlyIn) {
+        await writeCheckOut(null, null, address)
+      } else {
+        await writeCheckIn(null, null, address)
+      }
+      setGeoDenied(false)
+      setManualLocation('')
+      setManualNotes('')
     } finally {
       setLocating(false)
     }
@@ -461,6 +495,49 @@ export default function Attendance({ employee, onToast }) {
         )}
       </div>
 
+      {/* ── Manual location fallback — shown when geolocation fails/is denied ── */}
+      {geoDenied && (
+        <div style={{ ...card, marginBottom: 20, border: `1px solid ${C.red}55`, background: C.redBg }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: C.red, marginBottom: 6 }}>
+            Location access is blocked
+          </div>
+          <div style={{ fontSize: 12, color: C.textSec, marginBottom: 14 }}>
+            You can still {hasAnyPunch && isCurrentlyIn ? 'check out' : 'check in'} — enter your location manually below.
+          </div>
+          <Field label="Location">
+            <input
+              value={manualLocation}
+              onChange={e => setManualLocation(e.target.value)}
+              placeholder="e.g. Bengaluru Office, Client Site"
+              style={inputStyle()}
+            />
+          </Field>
+          <Field label="Notes (optional)">
+            <input
+              value={manualNotes}
+              onChange={e => setManualNotes(e.target.value)}
+              placeholder="Optional context for your approver"
+              style={inputStyle()}
+            />
+          </Field>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={handleManualSubmit}
+              disabled={locating || !manualLocation.trim()}
+              style={{ ...btnStyle(C.green, '#fff'), flex: 1, opacity: locating ? 0.7 : 1 }}
+            >
+              {locating ? 'Saving…' : `${hasAnyPunch && isCurrentlyIn ? 'Check Out' : 'Check In'} With This Location`}
+            </button>
+            <button
+              onClick={() => { setGeoDenied(false); setLocErr('') }}
+              style={{ ...btnStyle(C.bgSec, C.textSec), padding: '8px 16px' }}
+            >
+              Try Location Again
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Today's punch log ── */}
       {punches.length > 1 && (
         <>
@@ -552,15 +629,7 @@ export default function Attendance({ employee, onToast }) {
                   <div style={{ fontSize: 13, fontWeight: 500 }}>{formatDate(r.attendance?.date)}</div>
                   <div style={{ fontSize: 11, color: C.textSec, marginTop: 2 }}>{r.reason}</div>
                 </div>
-                <span style={{
-                  fontSize: 10, fontWeight: 500, padding: '3px 10px', borderRadius: 20,
-                  background: r.status === 'approved' ? C.greenBg
-                    : r.status === 'rejected' ? C.redBg : C.amberBg,
-                  color: r.status === 'approved' ? '#0F6E56'
-                    : r.status === 'rejected' ? C.red : '#854F0B',
-                }}>
-                  {r.status.charAt(0).toUpperCase() + r.status.slice(1)}
-                </span>
+                <Badge status={r.status} />
               </div>
               {r.reject_reason && (
                 <div style={{ fontSize: 11, color: C.red, marginTop: 4 }}>Reason: {r.reject_reason}</div>

@@ -3,8 +3,8 @@ export const C = {
   bg:        '#ffffff',
   bgSec:     '#f5f4f0',
   bgTert:    '#eeecea',
-  border:    'rgba(0,0,0,0.1)',
-  borderMed: 'rgba(0,0,0,0.18)',
+  border:    '#e6e2d8',
+  borderMed: '#d4cfc0',
   text:      '#1a1a1a',
   textSec:   '#6b6a65',
   textTert:  '#9e9d98',
@@ -65,20 +65,30 @@ export function Avatar({ initials, size = 36, color = C.blue, bg = C.blueBg }) {
 }
 
 // ─── Status badge ──────────────────────────────────────────────────────────────
+// Shared across leave/comp-off/attendance/timesheet/regularization/employee
+// statuses — the single source of truth for status colors so pages don't
+// each reinvent their own status→color map.
 const STATUS = {
-  approved: { bg: C.greenBg,  color: '#0F6E56', label: 'Approved' },
-  pending:  { bg: C.amberBg,  color: '#854F0B', label: 'Pending'  },
-  rejected: { bg: C.redBg,    color: C.red,     label: 'Rejected' },
-  cancelled:{ bg: C.bgTert,   color: C.textSec, label: 'Cancelled'},
+  approved:  { bg: C.greenBg,  color: '#0F6E56', label: 'Approved'  },
+  present:   { bg: C.greenBg,  color: '#0F6E56', label: 'Present'   },
+  active:    { bg: C.greenBg,  color: '#0F6E56', label: 'Active'    },
+  submitted: { bg: C.amberBg,  color: '#854F0B', label: 'Submitted' },
+  pending:   { bg: C.amberBg,  color: '#854F0B', label: 'Pending'   },
+  incomplete:{ bg: C.amberBg,  color: '#854F0B', label: 'Incomplete'},
+  rejected:  { bg: C.redBg,    color: C.red,     label: 'Rejected'  },
+  locked:    { bg: C.redBg,    color: C.red,     label: 'Locked'    },
+  cancelled: { bg: C.bgTert,   color: C.textSec, label: 'Cancelled' },
+  inactive:  { bg: C.bgTert,   color: C.textSec, label: 'Inactive'  },
+  draft:     { bg: C.bgTert,   color: C.textSec, label: 'Draft'     },
 }
-export function Badge({ status }) {
+export function Badge({ status, label }) {
   const s = STATUS[status] || STATUS.pending
   return (
     <span style={{
       background: s.bg, color: s.color,
       fontSize: 11, fontWeight: 500, padding: '3px 10px',
-      borderRadius: 20, whiteSpace: 'nowrap',
-    }}>{s.label}</span>
+      borderRadius: 999, whiteSpace: 'nowrap',
+    }}>{label || s.label}</span>
   )
 }
 

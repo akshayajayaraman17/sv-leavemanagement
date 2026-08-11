@@ -25,6 +25,7 @@ export default function Calendar({ onToast }) {
   const [holidays, setHolidays] = useState({})
   const [typeMap,  setTypeMap]  = useState({})
   const [loading,  setLoading]  = useState(true)
+  const [expandedDay, setExpandedDay] = useState(null)
 
   const year  = cursor.getFullYear()
   const month = cursor.getMonth()
@@ -110,7 +111,7 @@ export default function Calendar({ onToast }) {
                   {holidayName && (
                     <div style={{ fontSize: 9, color: '#854F0B', fontWeight: 500, marginBottom: 3, lineHeight: 1.3 }}>{holidayName}</div>
                   )}
-                  {dayEvents.slice(0, 3).map((ev, i) => {
+                  {(expandedDay === dateStr ? dayEvents : dayEvents.slice(0, 3)).map((ev, i) => {
                     const t = typeMap[ev.leave_type] || { color: C.textSec, bg: C.bgSec }
                     return (
                       <div key={ev.employee_id + i} title={`${ev.full_name} — ${t.label || ev.leave_type}`} style={{
@@ -118,12 +119,17 @@ export default function Calendar({ onToast }) {
                         borderRadius: 5, padding: '1px 5px', marginBottom: 2,
                         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                       }}>
-                        {ev.full_name.split(' ')[0]}
+                        {expandedDay === dateStr ? ev.full_name : ev.full_name.split(' ')[0]}
                       </div>
                     )
                   })}
                   {dayEvents.length > 3 && (
-                    <div style={{ fontSize: 9, color: C.textTert }}>+{dayEvents.length - 3} more</div>
+                    <button
+                      onClick={() => setExpandedDay(d => d === dateStr ? null : dateStr)}
+                      style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 9, fontWeight: 700, color: C.blue, textAlign: 'left' }}
+                    >
+                      {expandedDay === dateStr ? 'Close' : `+${dayEvents.length - 3} more`}
+                    </button>
                   )}
                 </div>
               )

@@ -112,6 +112,18 @@ export default function BulkAddEmployees({ employees, onBack, onDone, onToast })
   const [results,    setResults]   = useState([])
   const [passwordMode,   setPasswordMode]   = useState('shared') // 'random' | 'shared'
   const [sharedPassword, setSharedPassword] = useState('')
+  const [revealed, setRevealed] = useState(new Set())
+
+  const toggleReveal = (email) => setRevealed(prev => {
+    const next = new Set(prev)
+    next.has(email) ? next.delete(email) : next.add(email)
+    return next
+  })
+
+  const copyPassword = async (pw) => {
+    try { await navigator.clipboard.writeText(pw); onToast('Password copied') }
+    catch { onToast('Could not copy — copy it manually', 'error') }
+  }
 
   const handleFile = async (file) => {
     if (!file) return
@@ -200,11 +212,13 @@ export default function BulkAddEmployees({ employees, onBack, onDone, onToast })
           </button>
 
           <div
+            role="button" tabIndex={0}
             style={{
               border: `1.5px dashed ${C.borderMed}`, borderRadius: 8, padding: '24px 12px',
               background: C.bg, cursor: 'pointer', textAlign: 'center',
             }}
             onClick={() => document.getElementById('bulk-csv-upload').click()}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); document.getElementById('bulk-csv-upload').click() } }}
           >
             <div style={{ fontSize: 22, marginBottom: 6 }}>📄</div>
             <div style={{ fontSize: 13, color: C.textSec, fontWeight: 500 }}>
@@ -358,7 +372,17 @@ export default function BulkAddEmployees({ employees, onBack, onDone, onToast })
                       <td style={{ padding: '8px 10px' }}>{r.email}</td>
                       <td style={{ padding: '8px 10px' }}>{r.employee_code}</td>
                       <td style={{ padding: '8px 10px', fontFamily: 'ui-monospace, monospace' }}>
-                        {r.status === 'created' ? r.tempPassword : '—'}
+                        {r.status === 'created' ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span>{revealed.has(r.email) ? r.tempPassword : '••••••••'}</span>
+                            <button onClick={() => toggleReveal(r.email)} style={{ background: 'none', border: 'none', color: C.blue, cursor: 'pointer', fontSize: 11, fontWeight: 500, padding: 0 }}>
+                              {revealed.has(r.email) ? 'Hide' : 'Reveal'}
+                            </button>
+                            <button onClick={() => copyPassword(r.tempPassword)} style={{ background: 'none', border: 'none', color: C.textSec, cursor: 'pointer', fontSize: 11, fontWeight: 500, padding: 0 }}>
+                              Copy
+                            </button>
+                          </div>
+                        ) : '—'}
                       </td>
                       <td style={{ padding: '8px 10px' }}>
                         {r.status === 'created'

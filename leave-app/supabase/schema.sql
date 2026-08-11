@@ -28,6 +28,7 @@ create table public.employees (
   is_active       boolean not null default true,
   address         text,
   date_of_birth   date,
+  location        text,
   must_change_password boolean not null default false,
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now()
@@ -129,9 +130,11 @@ create table public.comp_off_requests (
 -- Company holidays — admin-managed, used for working-day / comp-off math
 create table public.company_holidays (
   id           uuid primary key default uuid_generate_v4(),
-  holiday_date date not null unique,
+  holiday_date date not null,
   name         text not null,
-  created_at   timestamptz not null default now()
+  region       text not null default 'All',
+  created_at   timestamptz not null default now(),
+  unique (holiday_date, region)
 );
 
 -- ────────────────────────────────────────────────────────────
@@ -423,6 +426,7 @@ begin
        or new.joining_date    is distinct from old.joining_date
        or new.manager_id      is distinct from old.manager_id
        or new.is_active       is distinct from old.is_active
+       or new.location        is distinct from old.location
     then
       raise exception 'You can only update your own phone, address, date of birth, and password-change status';
     end if;

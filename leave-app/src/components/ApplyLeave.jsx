@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchLeaveBalance, fetchEmployees, applyLeave, applyCompOff, getApproverForEmployee, uploadMedicalCertificate, fetchMyCompRequests, fetchHolidays, fetchAttendanceForDate } from '../lib/api'
-import { Avatar, C, Field, Spinner, btnStyle, card, inputStyle } from './UI'
+import { Avatar, C, Field, Spinner, btnStyle, card, formatDate, inputStyle } from './UI'
 
 function workingDays(from, to, holidaySet = new Set()) {
   let count = 0, d = new Date(from), end = new Date(to)
@@ -121,15 +121,23 @@ export function ApplyLeave({ employee, onToast }) {
         </select>
       </Field>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <Field label="Start Date" error={errs.from}><input type="date" min={today} value={form.from} onChange={e => setForm(f => ({ ...f, from: e.target.value }))} style={inputStyle(errs.from)} /></Field>
-        <Field label="End Date"   error={errs.to}>  <input type="date" min={form.from || today} value={form.to} onChange={e => setForm(f => ({ ...f, to: e.target.value }))} style={inputStyle(errs.to)} /></Field>
+        <Field label="Start Date" error={errs.from}><input type="date" min={today} value={form.from} onChange={e => { const v = e.target.value; setForm(f => ({ ...f, from: v, to: f.half ? v : f.to })) }} style={inputStyle(errs.from)} /></Field>
+        <Field label="End Date"   error={errs.to}>  <input type="date" min={form.from || today} value={form.to} disabled={form.half} onChange={e => setForm(f => ({ ...f, to: e.target.value }))} style={inputStyle(errs.to)} /></Field>
       </div>
-      <div style={{ marginBottom: 14 }}>
+      <div style={{ marginBottom: form.half ? 4 : 14 }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: C.textSec, cursor: 'pointer' }}>
-          <input type="checkbox" checked={form.half} onChange={e => setForm(f => ({ ...f, half: e.target.checked }))} />
+          <input type="checkbox" checked={form.half} onChange={e => {
+            const checked = e.target.checked
+            setForm(f => ({ ...f, half: checked, to: checked ? f.from : f.to }))
+          }} />
           Half day
         </label>
       </div>
+      {form.half && (
+        <div style={{ fontSize: 11, color: C.amber, marginBottom: 14 }}>
+          Half day requests are single-day only — end date was set to match the start date.
+        </div>
+      )}
       {days > 0 && (
         <div style={{ background: days > (bal?.remaining || 0) ? C.redBg : C.greenBg, color: days > (bal?.remaining || 0) ? C.red : '#0F6E56', fontSize: 13, fontWeight: 500, padding: '9px 12px', borderRadius: 8, marginBottom: 14 }}>
           {days} working day{days !== 1 ? 's' : ''} · {bal?.remaining ?? '?'} available
@@ -195,10 +203,10 @@ export function ApplyCompOff({ employee, onToast }) {
   const [approver,   setApprover]   = useState(null)
   const [existingReqs, setExisting] = useState([])
   const [holidays,   setHolidays]   = useState(new Set())
-  const [form,       setForm]       = useState({ workedDate: '', availDate: '', reason: '' })
+  const [form,       setForm]       = useState({ workedDate: '', reason: '' })
   const [attendance, setAttendance] = useState(null)   // attendance record for selected date
   const [attLoading, setAttLoading] = useState(false)
-  const [attError,   setAttError]   = useState('')
+  const [checks,     setChecks]     = useState([])     // live validation checklist
   const [errs,       setErrs]       = useState({})
   const [loading,    setLoading]    = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -220,89 +228,62 @@ export function ApplyCompOff({ employee, onToast }) {
     }).finally(() => setLoading(false))
   }, [employee.id])
 
-  // Auto-validate attendance when date changes
+  // Live validation checklist — computed all at once (not one message at a
+  // time) so the user sees every criterion simultaneously. The first three
+  // checks are synchronous; the attendance check only runs once they pass.
   useEffect(() => {
-    if (!form.workedDate) { setAttendance(null); setAttError(''); return }
-    const validateDate = async () => {
-      setAttLoading(true)
-      setAttError('')
-      setAttendance(null)
+    if (!form.workedDate) { setAttendance(null); setChecks([]); return }
+    let cancelled = false
 
-      // Check if date is in the past
-      if (form.workedDate >= today) {
-        setAttError('Comp-off can only be requested for past dates')
-        setAttLoading(false)
-        return
-      }
+    const d = new Date(form.workedDate + 'T12:00:00')
+    const dayOfWeek = d.getDay()
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
+    const isPast = form.workedDate < today
+    const isHolidayOrWeekend = isWeekend || holidays.has(form.workedDate)
+    const isDuplicate = existingReqs.some(r => r.worked_date === form.workedDate && r.status !== 'rejected')
+    const dateLabel = formatDate(form.workedDate)
 
-      // Check if date is a weekend or a company holiday
-      const d = new Date(form.workedDate + 'T12:00:00')
-      const dayOfWeek = d.getDay()
-      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
-      if (!isWeekend && !holidays.has(form.workedDate)) {
-        setAttError('Comp-off is only for work done on weekends or holidays')
-        setAttLoading(false)
-        return
-      }
+    const baseChecks = [
+      { key: 'past', ok: isPast,
+        text: isPast ? `${dateLabel} is in the past` : `${dateLabel} must be in the past` },
+      { key: 'weekend', ok: isHolidayOrWeekend,
+        text: isHolidayOrWeekend
+          ? `${dateLabel} was a ${isWeekend ? (dayOfWeek === 0 ? 'Sunday' : 'Saturday') : 'company holiday'}`
+          : `${dateLabel} is a weekday — comp-off requires a weekend or holiday` },
+      { key: 'duplicate', ok: !isDuplicate,
+        text: isDuplicate ? 'A comp-off request already exists for this date' : 'No existing comp-off request for this date' },
+    ]
 
-      // Check for duplicate request
-      const isDuplicate = existingReqs.some(r =>
-        r.worked_date === form.workedDate && r.status !== 'rejected'
-      )
-      if (isDuplicate) {
-        setAttError('A comp-off request already exists for this date')
-        setAttLoading(false)
-        return
-      }
+    const canCheckAttendance = isPast && isHolidayOrWeekend && !isDuplicate
+    setAttendance(null)
+    setAttLoading(canCheckAttendance)
+    setChecks([...baseChecks, { key: 'attendance', ok: false, text: canCheckAttendance ? 'Checking attendance…' : 'Attendance is checked once the above pass' }])
 
-      // Fetch attendance for that date
-      const { data: att } = await fetchAttendanceForDate(employee.id, form.workedDate)
+    if (!canCheckAttendance) return
 
-      if (!att || !att.check_in_time) {
-        setAttError('No check-in record found for this date. You must have valid attendance.')
-        setAttLoading(false)
-        return
-      }
+    fetchAttendanceForDate(employee.id, form.workedDate).then(({ data: att }) => {
+      if (cancelled) return
+      let ok = false, text
+      if (!att || !att.check_in_time)                                text = 'No check-in record found for this date'
+      else if (!att.check_out_time)                                  text = 'No check-out record found — both check-in and check-out are required'
+      else if (att.status === 'absent' || att.status === 'incomplete') text = `Attendance is marked as ${att.status}`
+      else if ((att.total_hours || 0) < 8)                           text = `Only ${(att.total_hours || 0).toFixed(1)}h logged — minimum 8 hours required`
+      else { ok = true; text = `Attendance verified: ${att.total_hours.toFixed(1)}h logged` }
 
-      if (!att.check_out_time) {
-        setAttError('No check-out record found. Both check-in and check-out are required.')
-        setAttLoading(false)
-        return
-      }
-
-      if (att.status === 'absent' || att.status === 'incomplete') {
-        setAttError('Attendance is marked as ' + att.status + '. Cannot apply comp-off.')
-        setAttLoading(false)
-        return
-      }
-
-      if ((att.total_hours || 0) < 8) {
-        setAttError(`Only ${att.total_hours?.toFixed(1) || 0}h logged. Minimum 8 hours required for comp-off.`)
-        setAttLoading(false)
-        return
-      }
-
-      setAttendance(att)
+      setChecks([...baseChecks, { key: 'attendance', ok, text }])
+      setAttendance(ok ? att : null)
       setAttLoading(false)
-    }
-    validateDate()
-  }, [form.workedDate, holidays])
+    })
+
+    return () => { cancelled = true }
+  }, [form.workedDate, holidays, existingReqs])
 
   const earnedDays = attendance ? (attendance.total_hours >= 8 ? 1 : 0) : 0
 
   const validate = () => {
     const e = {}
     if (!form.workedDate) e.workedDate = 'Required'
-    if (!attendance) e.workedDate = attError || 'Invalid date'
-    if (!form.availDate) e.availDate = 'Required'
-    if (form.availDate && form.workedDate && form.availDate <= form.workedDate) e.availDate = 'Must be after worked date'
-    // 30-day validity check
-    if (form.availDate && form.workedDate) {
-      const worked = new Date(form.workedDate)
-      const avail = new Date(form.availDate)
-      const diffDays = (avail - worked) / (1000 * 60 * 60 * 24)
-      if (diffDays > 30) e.availDate = 'Must be within 30 days of worked date'
-    }
+    if (!attendance) e.workedDate = 'All checks above must pass before submitting'
     if (!form.reason.trim()) e.reason = 'Required'
     return e
   }
@@ -333,7 +314,7 @@ export function ApplyCompOff({ employee, onToast }) {
       <div style={{ fontSize: 44, color: C.purple, marginBottom: 14 }}>✓</div>
       <div style={{ fontSize: 18, fontWeight: 500, marginBottom: 6 }}>Comp off request submitted</div>
       <div style={{ fontSize: 13, color: C.textSec, marginBottom: 28 }}>Pending approval from {approver?.full_name || 'your approver'}</div>
-      <button onClick={() => { setDone(false); setForm({ workedDate: '', availDate: '', reason: '' }); setAttendance(null); setErrs({}); setExisting(prev => prev) }} style={btnStyle(C.purple, '#fff')}>Submit Another</button>
+      <button onClick={() => { setDone(false); setForm({ workedDate: '', reason: '' }); setAttendance(null); setChecks([]); setErrs({}); setExisting(prev => prev) }} style={btnStyle(C.purple, '#fff')}>Submit Another</button>
     </div>
   )
 
@@ -360,15 +341,14 @@ export function ApplyCompOff({ employee, onToast }) {
         <input type="date" max={today} value={form.workedDate} onChange={e => { setForm(f => ({ ...f, workedDate: e.target.value })); setErrs({}); }} style={inputStyle(errs.workedDate)} />
       </Field>
 
-      {/* Attendance validation feedback */}
-      {attLoading && (
-        <div style={{ background: C.bgSec, borderRadius: 8, padding: '10px 12px', marginBottom: 14, fontSize: 12, color: C.textSec }}>
-          Validating attendance...
-        </div>
-      )}
-      {attError && !attLoading && form.workedDate && (
-        <div style={{ background: C.redBg, color: C.red, fontSize: 12, padding: '10px 12px', borderRadius: 8, marginBottom: 14 }}>
-          {attError}
+      {/* Live validation checklist — every criterion shown at once */}
+      {checks.length > 0 && (
+        <div style={{ ...card, marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {checks.map(c => (
+            <div key={c.key} style={{ fontSize: 13, fontWeight: 600, color: c.ok ? C.green : C.red }}>
+              {c.ok ? '✓' : '✕'} {c.text}
+            </div>
+          ))}
         </div>
       )}
       {attendance && !attLoading && (
@@ -392,22 +372,6 @@ export function ApplyCompOff({ employee, onToast }) {
             Will earn {earnedDays} comp-off day{earnedDays !== 1 ? 's' : ''}
           </div>
         </div>
-      )}
-
-      {attendance && (
-        <Field label="Date to Avail Comp-Off" error={errs.availDate}>
-          <input
-            type="date"
-            min={form.workedDate ? (() => { const d = new Date(form.workedDate); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0] })() : today}
-            max={form.workedDate ? (() => { const d = new Date(form.workedDate); d.setDate(d.getDate() + 30); return d.toISOString().split('T')[0] })() : undefined}
-            value={form.availDate}
-            onChange={e => { setForm(f => ({ ...f, availDate: e.target.value })); setErrs({}) }}
-            style={inputStyle(errs.availDate)}
-          />
-          <div style={{ fontSize: 11, color: C.textTert, marginTop: 4 }}>
-            Must be within 30 days of the worked date
-          </div>
-        </Field>
       )}
 
       <Field label="Work Done / Reason" error={errs.reason}>

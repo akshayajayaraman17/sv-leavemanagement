@@ -5,7 +5,7 @@ import {
   fetchTimesheetHistory, markEntriesJiraSynced, fetchAttendanceHistory,
   requestLateTimesheetSubmission,
 } from '../lib/api'
-import { C, Field, SecTitle, Spinner, btnStyle, card, formatDate, inputStyle } from './UI'
+import { Badge, C, Field, SecTitle, Spinner, btnStyle, card, formatDate, inputStyle } from './UI'
 
 // ── Week helpers ──────────────────────────────────────────────────────────────
 function getMondayOf(offset = 0) {
@@ -37,24 +37,6 @@ function fmtWeekLabel(ws) {
 const DAY_LABELS  = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 const DAY_SHORT   = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
 const today       = new Date().toISOString().split('T')[0]
-
-// ── Status badge ──────────────────────────────────────────────────────────────
-const TS_STATUS = {
-  draft:     { bg: C.bgTert,   color: C.textSec, label: 'Draft'     },
-  submitted: { bg: C.amberBg,  color: C.amber,   label: 'Submitted' },
-  approved:  { bg: C.greenBg,  color: '#0F6E56', label: 'Approved'  },
-  rejected:  { bg: C.redBg,    color: C.red,     label: 'Rejected'  },
-  locked:    { bg: C.redBg,    color: C.red,     label: 'Locked'    },
-}
-function TsBadge({ status }) {
-  const s = TS_STATUS[status] || TS_STATUS.draft
-  return (
-    <span style={{
-      background: s.bg, color: s.color,
-      fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20,
-    }}>{s.label}</span>
-  )
-}
 
 // ── Add entry inline form ─────────────────────────────────────────────────────
 function EntryForm({ date, timesheetId, employeeId, jiraConnected, attHours, dayTsHours, onSave, onCancel }) {
@@ -396,7 +378,7 @@ export default function Timesheet({ employee, onToast }) {
             {totalHours >= 40 ? '✓ 40h target met' : `${(40 - totalHours).toFixed(1)}h remaining`}
           </div>
         </div>
-        <TsBadge status={isLocked ? 'locked' : timesheet?.status} />
+        <Badge status={isLocked ? 'locked' : timesheet?.status} />
       </div>
 
       {/* Rejection reason */}
@@ -626,7 +608,7 @@ export default function Timesheet({ employee, onToast }) {
                   <div style={{ fontSize: 13, fontWeight: 500 }}>Week of {formatDate(ts.week_start)}</div>
                   <div style={{ fontSize: 11, color: C.textSec, marginTop: 2 }}>{ts.total_hours}h logged</div>
                 </div>
-                <TsBadge status={ts.status} />
+                <Badge status={ts.status} />
               </div>
             ))
           }

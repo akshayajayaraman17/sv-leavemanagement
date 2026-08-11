@@ -2,31 +2,47 @@ import { useEffect, useState } from 'react'
 import { fetchLeaveBalance, fetchMyLeaves, fetchMyCompRequests, fetchHolidays, fetchBirthdays } from '../lib/api'
 import { Avatar, Badge, C, SecTitle, Spinner, card, formatDate, formatDayMonth } from './UI'
 
-export default function Dashboard({ employee, onToast }) {
+export default function Dashboard({ employee, onToast, onNavigate }) {
   const [balances,  setBalances]  = useState([])
   const [leaves,    setLeaves]    = useState([])
   const [compReqs,  setCompReqs]  = useState([])
   const [holidays,  setHolidays]  = useState([])
   const [birthdays, setBirthdays] = useState([])
   const [loading,   setLoading]   = useState(true)
+  const [holidaysError,  setHolidaysError]  = useState(false)
+  const [birthdaysError, setBirthdaysError] = useState(false)
 
   useEffect(() => {
     Promise.all([
       fetchLeaveBalance(employee.id),
       fetchMyLeaves(employee.id),
       fetchMyCompRequests(employee.id),
-      fetchHolidays(),
-      fetchBirthdays(),
-    ]).then(([b, l, c, h, bd]) => {
-      const err = b.error || l.error || c.error || h.error || bd.error
+    ]).then(([b, l, c]) => {
+      const err = b.error || l.error || c.error
       if (err) onToast?.(err.message || 'Failed to load some data', 'error')
       setBalances(b.data || [])
       setLeaves((l.data || []).slice(0, 4))
       setCompReqs((c.data || []).filter(x => x.status === 'pending'))
-      setHolidays(h.data || [])
-      setBirthdays(bd.data || [])
     }).finally(() => setLoading(false))
+    loadHolidays()
+    loadBirthdays()
   }, [employee.id])
+
+  const loadHolidays = () => {
+    setHolidaysError(false)
+    fetchHolidays().then(({ data, error }) => {
+      if (error) { setHolidaysError(true); return }
+      setHolidays(data || [])
+    })
+  }
+
+  const loadBirthdays = () => {
+    setBirthdaysError(false)
+    fetchBirthdays().then(({ data, error }) => {
+      if (error) { setBirthdaysError(true); return }
+      setBirthdays(data || [])
+    })
+  }
 
   if (loading) return <Spinner />
 
@@ -44,6 +60,22 @@ export default function Dashboard({ employee, onToast }) {
 
   return (
     <div>
+      {/* Quick actions */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 18 }}>
+        <button
+          onClick={() => onNavigate?.('apply')}
+          style={{ background: C.green, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 18px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
+        >
+          Apply Leave
+        </button>
+        <button
+          onClick={() => onNavigate?.('attendance')}
+          style={{ background: 'transparent', color: C.text, border: `0.5px solid ${C.border}`, borderRadius: 8, padding: '10px 18px', fontSize: 13, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap' }}
+        >
+          Check In
+        </button>
+      </div>
+
       {/* Profile card */}
       <div style={{ ...card, background: C.bgSec, marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -79,11 +111,18 @@ export default function Dashboard({ employee, onToast }) {
         })}
       </div>
 
-      {(holidaysThisMonth.length > 0 || birthdaysThisMonth.length > 0) && (
+      {(holidaysThisMonth.length > 0 || birthdaysThisMonth.length > 0 || holidaysError || birthdaysError) && (
         <SecTitle>This Month</SecTitle>
       )}
-      <div style={{ display: 'grid', gridTemplateColumns: holidaysThisMonth.length && birthdaysThisMonth.length ? '1fr 1fr' : '1fr', gap: 10, marginBottom: 22 }}>
-        {holidaysThisMonth.length > 0 && (
+      <div style={{ display: 'grid', gridTemplateColumns: (holidaysThisMonth.length || holidaysError) && (birthdaysThisMonth.length || birthdaysError) ? '1fr 1fr' : '1fr', gap: 10, marginBottom: 22 }}>
+        {holidaysError ? (
+          <div style={card}>
+            <div style={{ fontSize: 13, color: C.red, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Couldn't load this section.</span>
+              <button onClick={loadHolidays} style={{ background: 'transparent', border: `1px solid ${C.red}`, color: C.red, borderRadius: 8, padding: '5px 12px', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>Retry</button>
+            </div>
+          </div>
+        ) : holidaysThisMonth.length > 0 && (
           <div style={card}>
             <div style={{ fontSize: 11, color: C.textSec, marginBottom: 8 }}>📅 Upcoming Holidays</div>
             {holidaysThisMonth.map(h => (
@@ -94,7 +133,14 @@ export default function Dashboard({ employee, onToast }) {
             ))}
           </div>
         )}
-        {birthdaysThisMonth.length > 0 && (
+        {birthdaysError ? (
+          <div style={card}>
+            <div style={{ fontSize: 13, color: C.red, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Couldn't load this section.</span>
+              <button onClick={loadBirthdays} style={{ background: 'transparent', border: `1px solid ${C.red}`, color: C.red, borderRadius: 8, padding: '5px 12px', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>Retry</button>
+            </div>
+          </div>
+        ) : birthdaysThisMonth.length > 0 && (
           <div style={card}>
             <div style={{ fontSize: 11, color: C.textSec, marginBottom: 8 }}>🎂 Birthdays</div>
             {birthdaysThisMonth.map(b => (

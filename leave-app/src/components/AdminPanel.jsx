@@ -6,7 +6,7 @@ import {
   fetchLeaveBalance, fetchHolidays, createHoliday, deleteHoliday, fetchAuditLog,
   fetchAllLeaveRequests, fetchAllAttendance,
 } from '../lib/api'
-import { rowsToCsv, downloadCsv } from '../lib/csv'
+import { rowsToCsv, downloadCsv, parseCsv } from '../lib/csv'
 import { printPayslip } from '../lib/payslip'
 import { generateEmpCode } from '../lib/employeeCode'
 import BulkAddEmployees from './BulkAddEmployees'
@@ -14,6 +14,7 @@ import { Avatar, C, Confirm, Empty, Field, SecTitle, Spinner, btnStyle, card, in
 
 const ROLES = { admin: 'Admin', manager: 'Manager', employee: 'Employee' }
 const DEPTS = ['Engineering', 'HR', 'Finance', 'Sales', 'Operations', 'Marketing', 'Design', 'Product']
+const REGIONS = ['India', 'United States', 'United Kingdom']
 const today = new Date().toISOString().split('T')[0]
 
 // ── Add/Edit Employee Form ────────────────────────────────────────────────────
@@ -27,6 +28,7 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
     employee_code:initial?.employee_code|| generateEmpCode(employees),
     department:   initial?.department   || '',
     designation:  initial?.designation  || '',
+    location:     initial?.location     || '',
     role:         initial?.role         || 'employee',
     joining_date: initial?.joining_date || today,
     manager_id:   initial?.manager_id   || '',
@@ -130,6 +132,7 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
         phone:         form.phone,
         department:    form.department,
         designation:   form.designation,
+        location:      form.location || null,
         role:          form.role,
         joining_date:  form.joining_date,
         manager_id:    form.manager_id || null,
@@ -227,7 +230,10 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
             <Field label="Full Name" error={errs.full_name}>
               <input value={form.full_name} onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))} style={inputStyle(errs.full_name)} placeholder="Jane Smith" />
             </Field>
-            <Field label="Employee Code" error={errs.employee_code}>
+            <Field
+              label="Employee Code" error={errs.employee_code}
+              hint={isEdit ? 'Read-only after creation — kept stable for approvals, timesheets, and payroll references.' : undefined}
+            >
               <input value={form.employee_code} onChange={e => setForm(f => ({ ...f, employee_code: e.target.value }))} style={{ ...inputStyle(errs.employee_code), background: !isEdit ? C.bgSec : undefined }} placeholder="EMP001" readOnly={!isEdit} />
             </Field>
           </div>
@@ -253,6 +259,12 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
               <input value={form.designation} onChange={e => setForm(f => ({ ...f, designation: e.target.value }))} style={inputStyle()} placeholder="Software Engineer" />
             </Field>
           </div>
+          <Field label="Location" hint="Determines which regional company holidays apply to this employee.">
+            <select value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} style={inputStyle()}>
+              <option value="">— Select —</option>
+              {REGIONS.map(r => <option key={r}>{r}</option>)}
+            </select>
+          </Field>
           <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <Field label="Role">
               <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} style={inputStyle()}>
@@ -485,13 +497,109 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
 }
 
 // ── Company Holidays ───────────────────────────────────────────────────────────
-function HolidaysPanel({ onToast }) {
+function BulkHolidayModal({ employees, onClose, onImported, onToast }) {
+  const [region,   setRegion]   = useState(REGIONS[0])
+  const [step,     setStep]     = useState(1) // 1 upload, 2 preview
+  const [fileName, setFileName] = useState('')
+  const [rows,     setRows]     = useState([]) // [{ date, name }]
+  const [importing, setImporting] = useState(false)
+
+  const downloadTemplate = () => {
+    downloadCsv('holiday-import-template.csv', rowsToCsv(
+      [{ date: today, name: 'e.g. Founders Day' }],
+      [{ key: 'date', label: 'date' }, { key: 'name', label: 'name' }]
+    ))
+  }
+
+  const handleFile = async (file) => {
+    if (!file) return
+    setFileName(file.name)
+    const text = await file.text()
+    const parsed = parseCsv(text)
+    const valid = parsed
+      .map(r => ({ date: (r.date || '').trim(), name: (r.name || '').trim() }))
+      .filter(r => /^\d{4}-\d{2}-\d{2}$/.test(r.date) && !Number.isNaN(new Date(r.date).getTime()) && r.name)
+    if (valid.length === 0) { onToast('No valid date/name rows found in that CSV', 'error'); return }
+    setRows(valid)
+    setStep(2)
+  }
+
+  const confirmImport = async () => {
+    setImporting(true)
+    let created = 0, failed = 0
+    for (const r of rows) {
+      const { error } = await createHoliday({ holiday_date: r.date, name: r.name, region })
+      if (error) failed++; else created++
+    }
+    setImporting(false)
+    onToast(`${created} holiday${created !== 1 ? 's' : ''} imported for ${region}${failed ? ` — ${failed} failed (likely duplicates)` : ''}`)
+    onImported()
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+      <div style={{ ...card, maxWidth: 440, width: '100%' }}>
+        <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 12 }}>Bulk Upload Holidays by Region</div>
+        <Field label="Region" hint="Applies to every employee whose profile Location matches this region.">
+          <select value={region} onChange={e => setRegion(e.target.value)} style={inputStyle()}>
+            {REGIONS.map(r => <option key={r}>{r}</option>)}
+          </select>
+        </Field>
+
+        {step === 1 && (
+          <>
+            <button onClick={downloadTemplate} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '7px 12px', fontSize: 12, marginBottom: 12 }}>
+              ⬇ Download CSV Template
+            </button>
+            <div
+              role="button" tabIndex={0}
+              onClick={() => document.getElementById('bulk-holiday-upload').click()}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); document.getElementById('bulk-holiday-upload').click() } }}
+              style={{ border: `1.5px dashed ${C.borderMed}`, borderRadius: 8, padding: '20px 12px', background: C.bg, cursor: 'pointer', textAlign: 'center', marginBottom: 14 }}
+            >
+              <div style={{ fontSize: 20, marginBottom: 4 }}>📄</div>
+              <div style={{ fontSize: 13, color: C.textSec, fontWeight: 500 }}>{fileName || 'Click, drag a CSV file here, or press Enter to upload'}</div>
+            </div>
+            <input id="bulk-holiday-upload" type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={e => handleFile(e.target.files?.[0])} />
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={onClose} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '8px 16px', fontSize: 13 }}>Cancel</button>
+            </div>
+          </>
+        )}
+
+        {step === 2 && (
+          <>
+            <div style={{ fontSize: 12, color: C.textSec, marginBottom: 8 }}>{rows.length} row{rows.length !== 1 ? 's' : ''} ready to import for {region}:</div>
+            <div style={{ maxHeight: 180, overflowY: 'auto', marginBottom: 14 }}>
+              {rows.map((r, i) => (
+                <div key={i} style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between', borderTop: `0.5px solid ${C.border}`, padding: '6px 0' }}>
+                  <span>{r.name}</span><span style={{ color: C.textSec }}>{formatDate(r.date)}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={onClose} disabled={importing} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '8px 16px', fontSize: 13 }}>Cancel</button>
+              <button onClick={confirmImport} disabled={importing} style={{ ...btnStyle(C.green, '#fff'), padding: '8px 16px', fontSize: 13, opacity: importing ? 0.7 : 1 }}>
+                {importing ? 'Importing…' : `Import ${rows.length} Holidays`}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function HolidaysPanel({ employees, onToast }) {
   const [holidays, setHolidays] = useState([])
   const [loading,  setLoading]  = useState(true)
-  const [form,     setForm]     = useState({ holiday_date: '', name: '' })
+  const [form,     setForm]     = useState({ holiday_date: '', name: '', region: REGIONS[0] })
   const [errs,     setErrs]     = useState({})
   const [saving,   setSaving]   = useState(false)
   const [confirm,  setConfirm]  = useState(null)
+  const [regionFilter, setRegionFilter] = useState('all')
+  const [bulkOpen,  setBulkOpen]  = useState(false)
+  const [copying,   setCopying]   = useState(false)
 
   const load = () => {
     setLoading(true)
@@ -511,12 +619,12 @@ function HolidaysPanel({ onToast }) {
     if (Object.keys(e).length) { setErrs(e); return }
 
     setSaving(true)
-    const { error } = await createHoliday({ holiday_date: form.holiday_date, name: form.name.trim() })
+    const { error } = await createHoliday({ holiday_date: form.holiday_date, name: form.name.trim(), region: form.region })
     setSaving(false)
     if (error) { onToast(error.message, 'error'); return }
-    setForm({ holiday_date: '', name: '' })
+    setForm(f => ({ ...f, holiday_date: '', name: '' }))
     setErrs({})
-    onToast('Holiday added')
+    onToast(`Holiday added for ${form.region}`)
     load()
   }
 
@@ -527,6 +635,26 @@ function HolidaysPanel({ onToast }) {
     setConfirm(null)
     load()
   }
+
+  const copyLastYear = async () => {
+    setCopying(true)
+    let created = 0, failed = 0
+    for (const h of holidays) {
+      const d = new Date(h.holiday_date + 'T12:00:00')
+      d.setFullYear(d.getFullYear() + 1)
+      const iso = d.toISOString().split('T')[0]
+      const { error } = await createHoliday({ holiday_date: iso, name: h.name, region: h.region })
+      if (error) failed++; else created++
+    }
+    setCopying(false)
+    onToast(`${created} holiday${created !== 1 ? 's' : ''} copied from last year${failed ? ` — ${failed} skipped (already exist)` : ''}`)
+    load()
+  }
+
+  const employeeCountForRegion = (region) =>
+    employees.filter(e => region === 'All' || e.location === region).length
+
+  const visibleHolidays = holidays.filter(h => regionFilter === 'all' || h.region === regionFilter || h.region === 'All')
 
   if (loading) return <Spinner />
 
@@ -539,15 +667,28 @@ function HolidaysPanel({ onToast }) {
           onNo={() => setConfirm(null)}
         />
       )}
+      {bulkOpen && (
+        <BulkHolidayModal
+          employees={employees}
+          onClose={() => setBulkOpen(false)}
+          onImported={() => { setBulkOpen(false); load() }}
+          onToast={onToast}
+        />
+      )}
 
       <div style={{ ...card, marginBottom: 18 }}>
         <SecTitle>Add Holiday</SecTitle>
-        <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div className="form-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
           <Field label="Date" error={errs.holiday_date}>
             <input type="date" value={form.holiday_date} onChange={e => setForm(f => ({ ...f, holiday_date: e.target.value }))} style={inputStyle(errs.holiday_date)} />
           </Field>
           <Field label="Name" error={errs.name}>
             <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Diwali" style={inputStyle(errs.name)} />
+          </Field>
+          <Field label="Region">
+            <select value={form.region} onChange={e => setForm(f => ({ ...f, region: e.target.value }))} style={inputStyle()}>
+              {REGIONS.map(r => <option key={r}>{r}</option>)}
+            </select>
           </Field>
         </div>
         <button onClick={add} disabled={saving} style={{ ...btnStyle(C.green, '#fff'), padding: '8px 16px', fontSize: 13, opacity: saving ? 0.7 : 1 }}>
@@ -555,13 +696,31 @@ function HolidaysPanel({ onToast }) {
         </button>
       </div>
 
-      <div style={{ fontSize: 11, color: C.textTert, marginBottom: 12 }}>{holidays.length} holiday{holidays.length !== 1 ? 's' : ''}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 11, color: C.textTert }}>{visibleHolidays.length} holiday{visibleHolidays.length !== 1 ? 's' : ''}</span>
+          <select value={regionFilter} onChange={e => setRegionFilter(e.target.value)} style={{ ...inputStyle(), width: 'auto', padding: '5px 8px', fontSize: 12 }}>
+            <option value="all">All regions</option>
+            {REGIONS.map(r => <option key={r}>{r}</option>)}
+          </select>
+        </div>
+        <div style={{ display: 'flex', gap: 14 }}>
+          <button onClick={copyLastYear} disabled={copying || holidays.length === 0} style={{ background: 'none', border: 'none', color: C.blue, fontSize: 12, fontWeight: 500, cursor: 'pointer', padding: 0 }}>
+            {copying ? 'Copying…' : "Copy last year's holidays"}
+          </button>
+          <button onClick={() => setBulkOpen(true)} style={{ background: 'none', border: 'none', color: C.blue, fontSize: 12, fontWeight: 500, cursor: 'pointer', padding: 0 }}>
+            Bulk Upload by Region
+          </button>
+        </div>
+      </div>
 
-      {holidays.length === 0 ? <Empty text="No holidays configured" /> : holidays.map(h => (
+      {visibleHolidays.length === 0 ? <Empty text="No holidays configured" /> : visibleHolidays.map(h => (
         <div key={h.id} style={{ ...card, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 500 }}>{h.name}</div>
-            <div style={{ fontSize: 11, color: C.textSec }}>{formatDate(h.holiday_date)}</div>
+            <div style={{ fontSize: 11, color: C.textSec }}>
+              {formatDate(h.holiday_date)} · {h.region} · {employeeCountForRegion(h.region)} employee{employeeCountForRegion(h.region) !== 1 ? 's' : ''}
+            </div>
           </div>
           <button onClick={() => setConfirm(h)} style={{ ...btnStyle(C.redBg, C.red), padding: '6px 12px', fontSize: 12 }}>Remove</button>
         </div>
@@ -611,6 +770,12 @@ function AuditLogPanel({ onToast }) {
 
   return (
     <div>
+      <div style={{ ...card, background: C.amberBg, border: `0.5px solid #E8C97A`, marginBottom: 16 }}>
+        <div style={{ fontSize: 12, color: '#854F0B', lineHeight: 1.6 }}>
+          This log covers only salary changes, leave adjustments, and role changes. It does not cover approvals,
+          employee lifecycle events (creation/deactivation), holiday changes, or Jira connections.
+        </div>
+      </div>
       <div style={{ fontSize: 11, color: C.textTert, marginBottom: 12 }}>{entries.length} recent action{entries.length !== 1 ? 's' : ''}</div>
       {entries.length === 0 ? <Empty text="No audit events yet" /> : entries.map(e => (
         <div key={e.id} style={{ ...card, marginBottom: 8 }}>
@@ -630,6 +795,8 @@ function AuditLogPanel({ onToast }) {
 // ── CSV Export ─────────────────────────────────────────────────────────────────
 function ExportPanel({ employees, onToast }) {
   const [exporting, setExporting] = useState(null)
+  const [leaveRange, setLeaveRange] = useState({ from: '', to: '' })
+  const [attRange,   setAttRange]   = useState({ from: '', to: '' })
 
   const exportEmployees = () => {
     setExporting('employees')
@@ -649,7 +816,7 @@ function ExportPanel({ employees, onToast }) {
 
   const exportLeaveRequests = async () => {
     setExporting('leave')
-    const { data, error } = await fetchAllLeaveRequests()
+    const { data, error } = await fetchAllLeaveRequests(leaveRange)
     setExporting(null)
     if (error) { onToast(error.message, 'error'); return }
     downloadCsv('leave-requests.csv', rowsToCsv(data || [], [
@@ -669,7 +836,7 @@ function ExportPanel({ employees, onToast }) {
 
   const exportAttendance = async () => {
     setExporting('attendance')
-    const { data, error } = await fetchAllAttendance(1000)
+    const { data, error } = await fetchAllAttendance(1000, attRange)
     setExporting(null)
     if (error) { onToast(error.message, 'error'); return }
     downloadCsv('attendance.csv', rowsToCsv(data || [], [
@@ -684,10 +851,21 @@ function ExportPanel({ employees, onToast }) {
     onToast('Attendance exported')
   }
 
-  const exportRow = (title, desc, key, onClick) => (
+  const dateRangeInputs = (range, setRange) => (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ fontSize: 11, color: C.textTert, marginBottom: 4 }}>Date range (optional)</div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <input type="date" value={range.from} onChange={e => setRange(r => ({ ...r, from: e.target.value }))} style={{ ...inputStyle(), padding: '6px 8px', fontSize: 12 }} />
+        <input type="date" value={range.to} onChange={e => setRange(r => ({ ...r, to: e.target.value }))} style={{ ...inputStyle(), padding: '6px 8px', fontSize: 12 }} />
+      </div>
+    </div>
+  )
+
+  const exportRow = (title, desc, key, onClick, rangeControls) => (
     <div style={{ ...card, marginBottom: 12 }}>
       <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>{title}</div>
       <div style={{ fontSize: 12, color: C.textSec, marginBottom: 12 }}>{desc}</div>
+      {rangeControls}
       <button onClick={onClick} disabled={exporting === key} style={{ ...btnStyle(C.green, '#fff'), padding: '7px 14px', fontSize: 12, opacity: exporting === key ? 0.7 : 1 }}>
         {exporting === key ? 'Exporting…' : 'Export CSV'}
       </button>
@@ -697,8 +875,8 @@ function ExportPanel({ employees, onToast }) {
   return (
     <div>
       {exportRow('Employee Roster', `All ${employees.length} employees with contact and role details.`, 'employees', exportEmployees)}
-      {exportRow('Leave Requests', 'All leave requests across the organization, any status.', 'leave', exportLeaveRequests)}
-      {exportRow('Attendance', 'Most recent 1,000 attendance records across the organization.', 'attendance', exportAttendance)}
+      {exportRow('Leave Requests', 'All leave requests across the organization, any status.', 'leave', exportLeaveRequests, dateRangeInputs(leaveRange, setLeaveRange))}
+      {exportRow('Attendance', 'Limited to the most recent 1,000 rows — narrow the date range below if you need older records reliably included.', 'attendance', exportAttendance, dateRangeInputs(attRange, setAttRange))}
     </div>
   )
 }
@@ -742,6 +920,13 @@ export default function AdminPanel({ onToast }) {
     load()
   }
 
+  const handleReactivate = async (id) => {
+    const { error } = await updateEmployee(id, { is_active: true })
+    if (error) { onToast(error.message, 'error'); return }
+    onToast('Employee reactivated')
+    load()
+  }
+
   if (loading) return <Spinner />
 
   const SectionTab = ({ id, label }) => (
@@ -762,7 +947,7 @@ export default function AdminPanel({ onToast }) {
     return (
       <div>
         {sectionTabs}
-        <HolidaysPanel onToast={onToast} />
+        <HolidaysPanel employees={employees} onToast={onToast} />
       </div>
     )
   }
@@ -842,33 +1027,78 @@ export default function AdminPanel({ onToast }) {
 
       <div style={{ fontSize: 11, color: C.textTert, marginBottom: 12 }}>{filtered.length} employee{filtered.length !== 1 ? 's' : ''}</div>
 
-      {filtered.length === 0 ? <Empty text="No employees found" /> : filtered.map(e => {
-        const mgr = employees.find(x => x.id === e.manager_id)
-        return (
-          <div key={e.id} style={{ ...card, marginBottom: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-              <Avatar initials={e.avatar_initials} size={38} color={C.blue} bg={C.blueBg} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 500 }}>{e.full_name}</div>
-                    <div style={{ fontSize: 11, color: C.textSec }}>{e.employee_code} · {e.designation || ROLES[e.role]} · {e.department || '—'}</div>
-                    <div style={{ fontSize: 11, color: C.textTert }}>Manager: {mgr?.full_name || '—'} · Joined {formatDate(e.joining_date)}</div>
+      {filtered.length === 0 ? <Empty text="No employees found" /> : (
+        <>
+          {/* Card list — mobile, below the ≥768px breakpoint */}
+          <div className="admin-emp-cards">
+            {filtered.map(e => {
+              const mgr = employees.find(x => x.id === e.manager_id)
+              return (
+                <div key={e.id} style={{ ...card, marginBottom: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                    <Avatar initials={e.avatar_initials} size={38} color={C.blue} bg={C.blueBg} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 500 }}>{e.full_name}</div>
+                          <div style={{ fontSize: 11, color: C.textSec }}>{e.employee_code} · {e.designation || ROLES[e.role]} · {e.department || '—'}</div>
+                          <div style={{ fontSize: 11, color: C.textTert }}>Manager: {mgr?.full_name || '—'} · Joined {formatDate(e.joining_date)}</div>
+                        </div>
+                        <span style={{ background: e.is_active ? C.greenBg : C.bgTert, color: e.is_active ? '#0F6E56' : C.textSec, fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 10, flexShrink: 0 }}>
+                          {e.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                        <button onClick={() => { setEditing(e); setEditingTab('details'); setView('edit') }} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '6px 12px', fontSize: 12 }}>Edit</button>
+                        <button onClick={() => { setEditing(e); setEditingTab('leave'); setView('edit') }} style={{ ...btnStyle(C.purpleBg, '#3C3489'), padding: '6px 12px', fontSize: 12 }}>Add / Remove Leaves</button>
+                        {e.is_active
+                          ? <button onClick={() => setConfirm(e)} style={{ ...btnStyle(C.redBg, C.red), padding: '6px 12px', fontSize: 12 }}>Deactivate</button>
+                          : <button onClick={() => handleReactivate(e.id)} style={{ ...btnStyle(C.greenBg, '#0F6E56'), padding: '6px 12px', fontSize: 12 }}>Reactivate</button>}
+                      </div>
+                    </div>
                   </div>
-                  <span style={{ background: e.is_active ? C.greenBg : C.bgTert, color: e.is_active ? '#0F6E56' : C.textSec, fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 10, flexShrink: 0 }}>
-                    {e.is_active ? 'Active' : 'Inactive'}
-                  </span>
                 </div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                  <button onClick={() => { setEditing(e); setEditingTab('details'); setView('edit') }} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '6px 12px', fontSize: 12 }}>Edit</button>
-                  <button onClick={() => { setEditing(e); setEditingTab('leave'); setView('edit') }} style={{ ...btnStyle(C.purpleBg, '#3C3489'), padding: '6px 12px', fontSize: 12 }}>Add / Remove Leaves</button>
-                  {e.is_active && <button onClick={() => setConfirm(e)} style={{ ...btnStyle(C.redBg, C.red), padding: '6px 12px', fontSize: 12 }}>Deactivate</button>}
-                </div>
-              </div>
-            </div>
+              )
+            })}
           </div>
-        )
-      })}
+
+          {/* Table — desktop, ≥768px */}
+          <div style={{ ...card, padding: 0, overflow: 'hidden' }} className="admin-emp-table-wrap">
+          <table className="admin-emp-table">
+            <thead>
+              <tr>
+                <th>Name</th><th>Code</th><th>Department</th><th>Designation</th><th>Role</th><th>Status</th><th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(e => (
+                <tr key={e.id}>
+                  <td style={{ fontWeight: 500 }}>{e.full_name}</td>
+                  <td style={{ color: C.textSec }}>{e.employee_code}</td>
+                  <td style={{ color: C.textSec }}>{e.department || '—'}</td>
+                  <td style={{ color: C.textSec }}>{e.designation || '—'}</td>
+                  <td style={{ color: C.textSec, textTransform: 'capitalize' }}>{ROLES[e.role]}</td>
+                  <td>
+                    <span style={{ background: e.is_active ? C.greenBg : C.bgTert, color: e.is_active ? '#0F6E56' : C.textSec, fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 10 }}>
+                      {e.is_active ? 'Active' : 'Inactive'}
+                    </span>
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                      <button onClick={() => { setEditing(e); setEditingTab('details'); setView('edit') }} style={{ background: 'none', border: 'none', color: C.blue, fontWeight: 500, cursor: 'pointer', fontSize: 12, padding: 0 }}>Edit</button>
+                      <button onClick={() => { setEditing(e); setEditingTab('leave'); setView('edit') }} style={{ background: 'none', border: 'none', color: '#3C3489', fontWeight: 500, cursor: 'pointer', fontSize: 12, padding: 0 }}>Leaves</button>
+                      {e.is_active
+                        ? <button onClick={() => setConfirm(e)} style={{ background: 'none', border: 'none', color: C.red, fontWeight: 500, cursor: 'pointer', fontSize: 12, padding: 0 }}>Deactivate</button>
+                        : <button onClick={() => handleReactivate(e.id)} style={{ background: 'none', border: 'none', color: C.green, fontWeight: 500, cursor: 'pointer', fontSize: 12, padding: 0 }}>Reactivate</button>}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          </div>
+        </>
+      )}
     </div>
   )
 }

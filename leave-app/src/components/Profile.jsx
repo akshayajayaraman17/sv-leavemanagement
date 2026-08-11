@@ -70,7 +70,6 @@ export default function Profile({ employee, onToast }) {
     setPw({ current: '', newPw: '', confirm: '' })
     setPwErrs({})
     setPwStep('success')
-    setTimeout(() => setPwStep('form'), 4000)
     onToast('Password changed successfully')
   }
 
@@ -161,9 +160,16 @@ export default function Profile({ employee, onToast }) {
         <SecTitle>Change Password</SecTitle>
 
         {pwStep === 'success' ? (
-          <div style={{ textAlign: 'center', padding: '24px 0' }}>
-            <div style={{ fontSize: 36, marginBottom: 10 }}>✓</div>
-            <div style={{ fontSize: 15, fontWeight: 500, color: C.green }}>Password changed successfully</div>
+          <div style={{
+            background: C.greenBg, borderRadius: 8, padding: '10px 14px',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          }}>
+            <span style={{ fontSize: 13, color: C.green }}>Password updated successfully.</span>
+            <button
+              onClick={() => setPwStep('form')}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.green, fontSize: 18, lineHeight: 1, fontWeight: 700, padding: 0 }}
+              aria-label="Dismiss"
+            >×</button>
           </div>
         ) : (
           <>

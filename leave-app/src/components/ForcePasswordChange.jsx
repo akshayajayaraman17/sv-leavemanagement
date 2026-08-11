@@ -15,6 +15,12 @@ export default function ForcePasswordChange({ employee }) {
     e.preventDefault()
     if (!newPw || newPw.length < 8) { setError('Min 8 characters'); return }
     if (newPw !== confirm)          { setError('Passwords do not match'); return }
+    // Deliberately no "new password must differ from the temp password"
+    // check here (unlike Profile.jsx's change-password flow). The temp
+    // password only ever lives in Login.jsx's local state during
+    // sign-in — reaching it here would mean threading a plaintext
+    // password through AuthContext/App just for this one comparison,
+    // which extends its exposure for a fairly marginal guarantee.
     setError('')
     setLoading(true)
 
