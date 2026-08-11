@@ -110,8 +110,8 @@ export default function BulkAddEmployees({ employees, onBack, onDone, onToast })
   const [creating,   setCreating]  = useState(false)
   const [progress,   setProgress]  = useState({ done: 0, total: 0 })
   const [results,    setResults]   = useState([])
-  const [passwordMode,   setPasswordMode]   = useState('random') // 'random' | 'shared'
-  const [sharedPassword, setSharedPassword] = useState('Sv@123456')
+  const [passwordMode,   setPasswordMode]   = useState('shared') // 'random' | 'shared'
+  const [sharedPassword, setSharedPassword] = useState('')
 
   const handleFile = async (file) => {
     if (!file) return

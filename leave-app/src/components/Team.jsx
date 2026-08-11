@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import {
-  fetchEmployees, fetchLeaveBalance, fetchMyLeaves,
+  fetchEmployees, fetchLeaveBalance, fetchMyLeaves, updateEmployee,
   fetchTimesheetHistory, fetchTimesheetEntries, fetchSalary,
   fetchAttendanceHistory, getMedicalCertificateUrl,
 } from '../lib/api'
-import { Avatar, Badge, C, Empty, SecTitle, Spinner, card, formatDate, inputStyle, btnStyle } from './UI'
+import { Avatar, Badge, C, Empty, Field, SecTitle, Spinner, card, formatDate, inputStyle, btnStyle } from './UI'
 
 const ROLES = { admin: 'Admin', manager: 'Manager', employee: 'Employee' }
 
@@ -33,7 +33,8 @@ function formatTime(ts) {
 }
 
 // ── Employee detail view ──────────────────────────────────────────────────────
-function EmployeeDetail({ emp, viewerRole, allEmployees, onBack, onToast }) {
+function EmployeeDetail({ emp: empProp, viewerRole, allEmployees, onBack, onToast }) {
+  const [emp,        setEmp]       = useState(empProp)
   const [tab,        setTab]       = useState('profile')
   const [balances,   setBalances]  = useState([])
   const [leaves,     setLeaves]    = useState([])
@@ -43,8 +44,55 @@ function EmployeeDetail({ emp, viewerRole, allEmployees, onBack, onToast }) {
   const [loading,    setLoading]   = useState(true)
   const [expandedTs, setExpandedTs]= useState(null)
   const [tsEntries,  setTsEntries] = useState({})
+  const [editing,    setEditing]   = useState(false)
+  const [form,       setForm]      = useState(null)
+  const [saving,     setSaving]    = useState(false)
 
   const isAdmin = viewerRole === 'admin'
+
+  const startEdit = () => {
+    setForm({
+      phone:         emp.phone         || '',
+      employee_code: emp.employee_code || '',
+      department:    emp.department    || '',
+      designation:   emp.designation   || '',
+      role:          emp.role,
+      manager_id:    emp.manager_id    || '',
+      joining_date:  emp.joining_date  || '',
+      is_active:     emp.is_active,
+    })
+    setEditing(true)
+  }
+
+  const saveEdit = async () => {
+    if (!form.employee_code.trim()) { onToast?.('Employee code is required', 'error'); return }
+    if (!form.joining_date)         { onToast?.('Date of joining is required', 'error'); return }
+
+    const activeOtherAdmins = allEmployees.filter(e => e.role === 'admin' && e.is_active !== false && e.id !== emp.id).length
+    if (emp.role === 'admin' && form.role !== 'admin' && activeOtherAdmins === 0) {
+      onToast?.('Cannot change role — at least one active admin must remain', 'error')
+      return
+    }
+
+    setSaving(true)
+    const updates = {
+      employee_code: form.employee_code.trim(),
+      phone:         form.phone.trim() || null,
+      department:    form.department.trim() || null,
+      designation:   form.designation.trim() || null,
+      role:          form.role,
+      manager_id:    form.manager_id || null,
+      joining_date:  form.joining_date,
+      is_active:     form.is_active,
+    }
+    const { error } = await updateEmployee(emp.id, updates)
+    setSaving(false)
+    if (error) { onToast?.(error.message || 'Failed to update employee', 'error'); return }
+
+    setEmp(e => ({ ...e, ...updates }))
+    setEditing(false)
+    onToast?.('Employee updated')
+  }
 
   useEffect(() => {
     setLoading(true)
@@ -103,27 +151,86 @@ function EmployeeDetail({ emp, viewerRole, allEmployees, onBack, onToast }) {
         {tab === 'profile' && (
           <div>
             <div style={{ ...card, marginBottom: 12 }}>
-              <SecTitle>Personal Info</SecTitle>
-              {[
-                ['Email',         emp.email],
-                ['Phone',         emp.phone   || '—'],
-                ['Address',       emp.address || '—'],
-                ['Employee Code', emp.employee_code],
-                ['Role',          ROLES[emp.role]],
-                ['Department',    emp.department  || '—'],
-                ['Designation',   emp.designation || '—'],
-                ['Reporting Manager', manager?.full_name || '—'],
-                ['Date of Joining',   formatDate(emp.joining_date)],
-                ['Status',        emp.is_active ? 'Active' : 'Inactive'],
-              ].map(([label, value]) => (
-                <div key={label} style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-                  padding: '8px 0', borderBottom: `0.5px solid ${C.border}`, gap: 12,
-                }}>
-                  <span style={{ fontSize: 13, color: C.textSec, flexShrink: 0 }}>{label}</span>
-                  <span style={{ fontSize: 13, fontWeight: 500, textAlign: 'right' }}>{value}</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <SecTitle>Personal Info</SecTitle>
+                {isAdmin && !editing && (
+                  <button onClick={startEdit} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '5px 12px', fontSize: 12 }}>
+                    Edit
+                  </button>
+                )}
+              </div>
+
+              {!editing ? (
+                [
+                  ['Email',         emp.email],
+                  ['Phone',         emp.phone   || '—'],
+                  ['Address',       emp.address || '—'],
+                  ['Employee Code', emp.employee_code],
+                  ['Role',          ROLES[emp.role]],
+                  ['Department',    emp.department  || '—'],
+                  ['Designation',   emp.designation || '—'],
+                  ['Reporting Manager', manager?.full_name || '—'],
+                  ['Date of Joining',   formatDate(emp.joining_date)],
+                  ['Status',        emp.is_active ? 'Active' : 'Inactive'],
+                ].map(([label, value]) => (
+                  <div key={label} style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+                    padding: '8px 0', borderBottom: `0.5px solid ${C.border}`, gap: 12,
+                  }}>
+                    <span style={{ fontSize: 13, color: C.textSec, flexShrink: 0 }}>{label}</span>
+                    <span style={{ fontSize: 13, fontWeight: 500, textAlign: 'right' }}>{value}</span>
+                  </div>
+                ))
+              ) : (
+                <div style={{ marginTop: 10 }}>
+                  <Field label="Employee Code">
+                    <input value={form.employee_code} onChange={e => setForm(f => ({ ...f, employee_code: e.target.value }))} style={inputStyle()} />
+                  </Field>
+                  <Field label="Phone">
+                    <input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} style={inputStyle()} placeholder="+91 98765 43210" />
+                  </Field>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <Field label="Department">
+                      <input value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))} style={inputStyle()} />
+                    </Field>
+                    <Field label="Designation">
+                      <input value={form.designation} onChange={e => setForm(f => ({ ...f, designation: e.target.value }))} style={inputStyle()} />
+                    </Field>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <Field label="Role">
+                      <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} style={inputStyle()}>
+                        {Object.entries(ROLES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Date of Joining">
+                      <input type="date" value={form.joining_date} onChange={e => setForm(f => ({ ...f, joining_date: e.target.value }))} style={inputStyle()} />
+                    </Field>
+                  </div>
+                  <Field label="Reporting Manager">
+                    <select value={form.manager_id} onChange={e => setForm(f => ({ ...f, manager_id: e.target.value }))} style={inputStyle()}>
+                      <option value="">— No manager —</option>
+                      {allEmployees.filter(e => e.id !== emp.id && e.role !== 'employee').map(e => (
+                        <option key={e.id} value={e.id}>{e.full_name} ({ROLES[e.role]})</option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Status">
+                    <select value={form.is_active ? 'active' : 'inactive'} onChange={e => setForm(f => ({ ...f, is_active: e.target.value === 'active' }))} style={inputStyle()}>
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+                  </Field>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                    <button onClick={() => setEditing(false)} disabled={saving} style={{ ...btnStyle(C.bgSec, C.textSec), flex: 1, fontSize: 13 }}>
+                      Cancel
+                    </button>
+                    <button onClick={saveEdit} disabled={saving} style={{ ...btnStyle(C.green, '#fff'), flex: 1, fontSize: 13, opacity: saving ? 0.7 : 1 }}>
+                      {saving ? 'Saving…' : 'Save Changes'}
+                    </button>
+                  </div>
                 </div>
-              ))}
+              )}
             </div>
 
             <SecTitle>Leave Balance — {new Date().getFullYear()}</SecTitle>

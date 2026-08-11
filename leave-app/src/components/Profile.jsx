@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { updateProfile } from '../lib/api'
+import { useEffect, useState } from 'react'
+import { fetchEmployees, updateProfile } from '../lib/api'
 import { supabase } from '../lib/supabase'
 import { Avatar, C, Field, SecTitle, btnStyle, card, formatDate, inputStyle } from './UI'
 
@@ -12,7 +12,15 @@ export default function Profile({ employee, onToast }) {
     date_of_birth: employee.date_of_birth || '',
   })
   const [saving, setSaving] = useState(false)
+  const [manager, setManager] = useState(null)
   const today = new Date().toISOString().split('T')[0]
+
+  useEffect(() => {
+    if (!employee.manager_id) return
+    fetchEmployees().then(({ data }) => {
+      setManager((data || []).find(e => e.id === employee.manager_id) || null)
+    })
+  }, [employee.manager_id])
 
   // Change password state
   const [pw, setPw]         = useState({ current: '', newPw: '', confirm: '' })
@@ -87,11 +95,18 @@ export default function Profile({ employee, onToast }) {
       {/* ── Account info (read-only) ── */}
       <div style={{ ...card, marginBottom: 20 }}>
         <SecTitle>Account Info</SecTitle>
+        <div style={{ fontSize: 11, color: C.textTert, marginBottom: 8 }}>
+          These are set by your admin — contact them to make changes.
+        </div>
         {[
-          ['Email',           employee.email],
-          ['Role',            ROLE_LABEL[employee.role]],
-          ['Date of Joining', formatDate(employee.joining_date)],
-          ['Employee Code',   employee.employee_code],
+          ['Email',              employee.email],
+          ['Role',               ROLE_LABEL[employee.role]],
+          ['Department',         employee.department  || '—'],
+          ['Designation',        employee.designation || '—'],
+          ['Reporting Manager',  manager?.full_name    || '—'],
+          ['Date of Joining',    formatDate(employee.joining_date)],
+          ['Employee Code',      employee.employee_code],
+          ['Status',             employee.is_active ? 'Active' : 'Inactive'],
         ].map(([label, value]) => (
           <div key={label} style={{
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
