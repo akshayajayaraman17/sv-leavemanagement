@@ -541,6 +541,8 @@ create table public.attendance (
   check_out_lng     double precision,
   check_out_address text,
   total_hours       double precision,
+  status            text not null default 'present'
+                      check (status in ('present', 'incomplete', 'absent')),
   created_at        timestamptz not null default now(),
   unique(employee_id, date)
 );
@@ -593,7 +595,7 @@ create policy "attendance_insert" on public.attendance for insert with check (
   employee_id = auth.uid()
 );
 create policy "attendance_update" on public.attendance for update using (
-  employee_id = auth.uid()
+  employee_id = auth.uid() or public.is_manager()
 );
 
 -- Timesheets: own + assigned approver + admin
@@ -624,3 +626,151 @@ create policy "ts_entries_update" on public.timesheet_entries for update using (
 create policy "ts_entries_delete" on public.timesheet_entries for delete using (
   employee_id = auth.uid()
 );
+
+-- ============================================================
+-- ATTENDANCE PUNCHES & REGULARIZATIONS
+-- ============================================================
+-- Policies:
+--   1. Multiple check-ins/check-outs within 24-hour window
+--   2. Minimum 8 working hours for valid attendance
+--   3. Missing check-out = marked as leave → employee requests regularization
+--   4. Check-in/check-out mandatory
+
+-- Attendance punches — tracks each check-in/check-out event
+create table public.attendance_punches (
+  id            uuid primary key default uuid_generate_v4(),
+  attendance_id uuid not null references public.attendance(id) on delete cascade,
+  employee_id   uuid not null references public.employees(id) on delete cascade,
+  punch_type    text not null check (punch_type in ('check_in', 'check_out')),
+  punch_time    timestamptz not null,
+  lat           double precision,
+  lng           double precision,
+  address       text,
+  created_at    timestamptz not null default now()
+);
+
+-- Attendance regularizations — requests to fix missing checkouts
+create table public.attendance_regularizations (
+  id              uuid primary key default uuid_generate_v4(),
+  attendance_id   uuid not null references public.attendance(id) on delete cascade,
+  employee_id     uuid not null references public.employees(id) on delete cascade,
+  approver_id     uuid references public.employees(id),
+  reason          text not null,
+  check_out_time  timestamptz,             -- proposed check-out time
+  status          text not null default 'pending'
+                    check (status in ('pending', 'approved', 'rejected')),
+  decided_at      timestamptz,
+  reject_reason   text,
+  created_at      timestamptz not null default now()
+);
+
+alter table public.attendance_punches          enable row level security;
+alter table public.attendance_regularizations  enable row level security;
+
+-- Punches: own records + managers/admins
+create policy "punches_select" on public.attendance_punches for select using (
+  employee_id = auth.uid() or public.is_manager()
+);
+create policy "punches_insert" on public.attendance_punches for insert with check (
+  employee_id = auth.uid()
+);
+
+-- Regularizations: employee sees own, manager/admin sees all
+create policy "reg_select" on public.attendance_regularizations for select using (
+  employee_id = auth.uid() or approver_id = auth.uid() or public.is_admin()
+);
+create policy "reg_insert" on public.attendance_regularizations for insert with check (
+  employee_id = auth.uid()
+);
+create policy "reg_update" on public.attendance_regularizations for update using (
+  approver_id = auth.uid() or public.is_admin()
+);
+
+-- ============================================================
+-- INDEXES & DATA INTEGRITY
+-- ============================================================
+-- Indexes on foreign key / filter columns Postgres does not index
+-- automatically, matching the query patterns in src/lib/api.js, plus a
+-- DB-level constraint stopping an employee from having two overlapping
+-- pending/approved leave requests (defense in depth — the client also
+-- checks this, but only the DB constraint makes it impossible to bypass
+-- by calling the API directly).
+
+create index idx_leave_requests_employee   on public.leave_requests (employee_id);
+create index idx_leave_requests_approver    on public.leave_requests (approver_id, status);
+
+create index idx_comp_off_employee          on public.comp_off_requests (employee_id);
+create index idx_comp_off_approver           on public.comp_off_requests (approver_id, status);
+
+create index idx_attendance_punches_attendance on public.attendance_punches (attendance_id);
+
+create index idx_att_regularizations_employee  on public.attendance_regularizations (employee_id);
+create index idx_att_regularizations_approver  on public.attendance_regularizations (approver_id, status);
+
+create index idx_timesheets_approver         on public.timesheets (approver_id, status);
+create index idx_timesheet_entries_timesheet on public.timesheet_entries (timesheet_id);
+
+create index idx_salary_details_employee     on public.salary_details (employee_id, effective_from desc);
+
+create extension if not exists btree_gist;
+
+alter table public.leave_requests
+  add constraint no_overlapping_leave
+  exclude using gist (
+    employee_id with =,
+    daterange(from_date, to_date, '[]') with &&
+  )
+  where (status in ('pending','approved'));
+
+-- ============================================================
+-- SECURITY HARDENING — approver_id enforcement + private certificates
+-- ============================================================
+-- approver_id on leave_requests / comp_off_requests /
+-- attendance_regularizations must never be trusted as client-supplied
+-- input on insert — a user could otherwise set approver_id to their own
+-- id (or anyone else's) and later approve their own request, since the
+-- update policies trust approver_id = auth.uid(). It is computed
+-- server-side on every insert here, ignoring whatever the client sent.
+
+create or replace function public.enforce_approver_id()
+returns trigger language plpgsql as $$
+begin
+  new.approver_id := public.get_approver(new.employee_id);
+  return new;
+end;
+$$;
+
+create trigger trg_leave_requests_approver
+  before insert on public.leave_requests
+  for each row execute function public.enforce_approver_id();
+
+create trigger trg_comp_off_requests_approver
+  before insert on public.comp_off_requests
+  for each row execute function public.enforce_approver_id();
+
+create trigger trg_attendance_regularizations_approver
+  before insert on public.attendance_regularizations
+  for each row execute function public.enforce_approver_id();
+
+-- Medical certificates: private bucket + RLS. The bucket is created
+-- non-public so uploaded certificates are only reachable via short-lived
+-- signed URLs (see getMedicalCertificateUrl in src/lib/api.js), never a
+-- permanent public link.
+insert into storage.buckets (id, name, public)
+values ('medical-certificates', 'medical-certificates', false)
+on conflict (id) do update set public = false;
+
+create policy "medical_certs_insert_own" on storage.objects for insert
+  with check (
+    bucket_id = 'medical-certificates'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+create policy "medical_certs_select_own_or_reviewer" on storage.objects for select
+  using (
+    bucket_id = 'medical-certificates'
+    and (
+      (storage.foldername(name))[1] = auth.uid()::text
+      or public.is_manager()
+    )
+  );

@@ -4,9 +4,8 @@ import {
   checkIn, checkOut,
   fetchPunches, addPunch,
   createRegularization, fetchMyRegularizations,
-  updateAttendanceStatus,
+  updateAttendanceStatus, getApproverForEmployee,
 } from '../lib/api'
-import { supabase } from '../lib/supabase'
 import { C, SecTitle, Spinner, card, formatDate, Field, btnStyle, inputStyle } from './UI'
 
 const MIN_HOURS = 8
@@ -214,7 +213,7 @@ export default function Attendance({ employee, onToast }) {
     setRegSaving(true)
 
     // Get approver
-    const { data: approverId } = await supabase.rpc('get_approver', { emp_id: employee.id })
+    const { data: approverId } = await getApproverForEmployee(employee.id)
 
     const { error } = await createRegularization({
       attendance_id: regForm.attendanceId,

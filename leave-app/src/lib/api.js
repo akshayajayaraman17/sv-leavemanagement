@@ -314,6 +314,16 @@ export const fetchTodayAttendance = async (employeeId) => {
   return { data, error }
 }
 
+export const fetchAttendanceForDate = async (employeeId, date) => {
+  const { data, error } = await supabase
+    .from('attendance')
+    .select('*')
+    .eq('employee_id', employeeId)
+    .eq('date', date)
+    .maybeSingle()
+  return { data, error }
+}
+
 export const fetchAttendanceHistory = async (employeeId, limit = 20) => {
   const { data, error } = await supabase
     .from('attendance')
@@ -465,6 +475,16 @@ export const deleteTimesheetEntry = async (id) => {
   const { error } = await supabase
     .from('timesheet_entries')
     .delete()
+    .eq('id', id)
+  return { error }
+}
+
+// Unlocks a locked (past-deadline) timesheet back to draft with the late
+// reason recorded, so the employee can add entries and resubmit.
+export const requestLateTimesheetSubmission = async (id, reason) => {
+  const { error } = await supabase
+    .from('timesheets')
+    .update({ status: 'draft', reject_reason: `Late submission: ${reason}` })
     .eq('id', id)
   return { error }
 }

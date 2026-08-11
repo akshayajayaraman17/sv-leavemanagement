@@ -73,6 +73,10 @@ function EmployeeDetail({ emp: empProp, viewerRole, allEmployees, onBack, onToas
       onToast?.('Cannot change role — at least one active admin must remain', 'error')
       return
     }
+    if (emp.role === 'admin' && form.role === 'admin' && form.is_active === false && activeOtherAdmins === 0) {
+      onToast?.('Cannot deactivate — at least one active admin must remain', 'error')
+      return
+    }
 
     setSaving(true)
     const updates = {

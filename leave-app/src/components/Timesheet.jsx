@@ -3,8 +3,8 @@ import {
   fetchOrCreateTimesheet, fetchTimesheetEntries, addTimesheetEntry,
   deleteTimesheetEntry, submitTimesheet, fetchJiraAccount, postJiraWorklog,
   fetchTimesheetHistory, markEntriesJiraSynced, fetchAttendanceHistory,
+  requestLateTimesheetSubmission,
 } from '../lib/api'
-import { supabase } from '../lib/supabase'
 import { C, Field, SecTitle, Spinner, btnStyle, card, formatDate, inputStyle } from './UI'
 
 // ── Week helpers ──────────────────────────────────────────────────────────────
@@ -152,12 +152,7 @@ function LateRequestForm({ timesheet, onSubmit, onCancel }) {
   const submit = async () => {
     if (!reason.trim()) return
     setSaving(true)
-    // Create late submission request using attendance_regularizations table
-    // or we store it as a special status on the timesheet
-    const { error } = await supabase
-      .from('timesheets')
-      .update({ status: 'draft', reject_reason: `Late submission: ${reason.trim()}` })
-      .eq('id', timesheet.id)
+    const { error } = await requestLateTimesheetSubmission(timesheet.id, reason.trim())
     setSaving(false)
     if (error) return
     onSubmit()

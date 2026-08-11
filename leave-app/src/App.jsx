@@ -1,22 +1,26 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { useAuth } from './lib/AuthContext'
 import Login from './components/Login'
-import Dashboard from './components/Dashboard'
-import { ApplyLeave, ApplyCompOff } from './components/ApplyLeave'
-import MyLeaves from './components/MyLeaves'
-import Approvals from './components/Approvals'
-import AdminPanel from './components/AdminPanel'
-import JiraSettings from './components/JiraSettings'
-import Attendance from './components/Attendance'
-import Timesheet from './components/Timesheet'
-import Profile from './components/Profile'
-import Team from './components/Team'
-import Notifications from './components/Notifications'
-import Calendar from './components/Calendar'
 import ForcePasswordChange from './components/ForcePasswordChange'
 import ErrorBoundary from './components/ErrorBoundary'
 import { Toast, C, Spinner, Avatar } from './components/UI'
 import { signOut } from './lib/api'
+
+// Tab content is lazy-loaded — only the shell + whichever tab is active
+// need to be in the initial bundle.
+const Dashboard     = lazy(() => import('./components/Dashboard'))
+const ApplyLeave    = lazy(() => import('./components/ApplyLeave').then(m => ({ default: m.ApplyLeave })))
+const ApplyCompOff  = lazy(() => import('./components/ApplyLeave').then(m => ({ default: m.ApplyCompOff })))
+const MyLeaves      = lazy(() => import('./components/MyLeaves'))
+const Approvals     = lazy(() => import('./components/Approvals'))
+const AdminPanel    = lazy(() => import('./components/AdminPanel'))
+const JiraSettings  = lazy(() => import('./components/JiraSettings'))
+const Attendance    = lazy(() => import('./components/Attendance'))
+const Timesheet     = lazy(() => import('./components/Timesheet'))
+const Profile       = lazy(() => import('./components/Profile'))
+const Team          = lazy(() => import('./components/Team'))
+const Notifications = lazy(() => import('./components/Notifications'))
+const Calendar      = lazy(() => import('./components/Calendar'))
 
 const NAV = {
   employee: [
@@ -153,19 +157,21 @@ export default function App() {
         <div className="app-content">
           <div className="content-max">
             <ErrorBoundary key={tab}>
-              {tab === 'dash'       && <Dashboard     employee={employee} onToast={showToast} />}
-              {tab === 'notifications' && <Notifications employee={employee} onToast={showToast} />}
-              {tab === 'attendance' && <Attendance   employee={employee} onToast={showToast} />}
-              {tab === 'timesheet'  && <Timesheet    employee={employee} onToast={showToast} />}
-              {tab === 'apply'      && <ApplyLeave   employee={employee} onToast={showToast} />}
-              {tab === 'comp'       && <ApplyCompOff employee={employee} onToast={showToast} />}
-              {tab === 'history'    && <MyLeaves     employee={employee} onToast={showToast} />}
-              {tab === 'calendar'   && <Calendar     onToast={showToast} />}
-              {tab === 'approvals'  && <Approvals    employee={employee} onToast={showToast} />}
-              {tab === 'admin'      && <AdminPanel   onToast={showToast} />}
-              {tab === 'team'       && <Team          viewer={employee} onToast={showToast} />}
-              {tab === 'jira'       && <JiraSettings employee={employee} onToast={showToast} />}
-              {tab === 'profile'    && <Profile      employee={employee} onToast={showToast} />}
+              <Suspense fallback={<Spinner />}>
+                {tab === 'dash'       && <Dashboard     employee={employee} onToast={showToast} />}
+                {tab === 'notifications' && <Notifications employee={employee} onToast={showToast} />}
+                {tab === 'attendance' && <Attendance   employee={employee} onToast={showToast} />}
+                {tab === 'timesheet'  && <Timesheet    employee={employee} onToast={showToast} />}
+                {tab === 'apply'      && <ApplyLeave   employee={employee} onToast={showToast} />}
+                {tab === 'comp'       && <ApplyCompOff employee={employee} onToast={showToast} />}
+                {tab === 'history'    && <MyLeaves     employee={employee} onToast={showToast} />}
+                {tab === 'calendar'   && <Calendar     onToast={showToast} />}
+                {tab === 'approvals'  && <Approvals    employee={employee} onToast={showToast} />}
+                {tab === 'admin'      && <AdminPanel   onToast={showToast} />}
+                {tab === 'team'       && <Team          viewer={employee} onToast={showToast} />}
+                {tab === 'jira'       && <JiraSettings employee={employee} onToast={showToast} />}
+                {tab === 'profile'    && <Profile      employee={employee} onToast={showToast} />}
+              </Suspense>
             </ErrorBoundary>
           </div>
         </div>

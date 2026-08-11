@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { fetchLeaveBalance, fetchEmployees, applyLeave, applyCompOff, getApproverForEmployee, uploadMedicalCertificate, fetchMyCompRequests, fetchHolidays } from '../lib/api'
-import { supabase } from '../lib/supabase'
+import { fetchLeaveBalance, fetchEmployees, applyLeave, applyCompOff, getApproverForEmployee, uploadMedicalCertificate, fetchMyCompRequests, fetchHolidays, fetchAttendanceForDate } from '../lib/api'
 import { Avatar, C, Field, Spinner, btnStyle, card, inputStyle } from './UI'
 
 function workingDays(from, to, holidaySet = new Set()) {
@@ -257,12 +256,7 @@ export function ApplyCompOff({ employee, onToast }) {
       }
 
       // Fetch attendance for that date
-      const { data: att } = await supabase
-        .from('attendance')
-        .select('*')
-        .eq('employee_id', employee.id)
-        .eq('date', form.workedDate)
-        .maybeSingle()
+      const { data: att } = await fetchAttendanceForDate(employee.id, form.workedDate)
 
       if (!att || !att.check_in_time) {
         setAttError('No check-in record found for this date. You must have valid attendance.')
