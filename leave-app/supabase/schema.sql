@@ -142,8 +142,7 @@ create table public.company_holidays (
 -- ────────────────────────────────────────────────────────────
 insert into public.leave_types (code, label, annual_days, color, bg_color, is_comp_off) values
   ('annual',  'Annual Leave',  20, '#1D9E75', '#E1F5EE', false),
-  ('sick',    'Sick Leave',    10, '#378ADD', '#E6F1FB', false),
-  ('casual',  'Casual Leave',  6,  '#BA7517', '#FAEEDA', false),
+  ('sick',    'Medical Leave', 10, '#378ADD', '#E6F1FB', false),
   ('comp',    'Comp Off',      0,  '#7F77DD', '#EEEDFE', true);
 
 -- ────────────────────────────────────────────────────────────
