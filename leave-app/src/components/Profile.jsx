@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { fetchEmployees, updateProfile } from '../lib/api'
 import { supabase } from '../lib/supabase'
+import { passwordError, PASSWORD_HINT } from '../lib/password'
 import { Avatar, C, Field, SecTitle, btnStyle, card, formatDate, inputStyle } from './UI'
 
 const ROLE_LABEL = { admin: 'Admin', manager: 'Manager', employee: 'Employee' }
@@ -43,8 +44,8 @@ export default function Profile({ employee, onToast }) {
   const changePassword = async () => {
     const e = {}
     if (!pw.current)                  e.current = 'Required'
-    if (!pw.newPw)                    e.newPw   = 'Required'
-    else if (pw.newPw.length < 8)     e.newPw   = 'Min 8 characters'
+    const pwErr = passwordError(pw.newPw)
+    if (pwErr)                        e.newPw   = pwErr
     if (pw.newPw !== pw.confirm)      e.confirm  = 'Passwords do not match'
     if (pw.current && pw.current === pw.newPw) e.newPw = 'New password must differ from current'
     if (Object.keys(e).length) { setPwErrs(e); return }
@@ -182,12 +183,12 @@ export default function Profile({ employee, onToast }) {
                 style={inputStyle(pwErrs.current)}
               />
             </Field>
-            <Field label="New Password" error={pwErrs.newPw}>
+            <Field label="New Password" error={pwErrs.newPw} hint={PASSWORD_HINT}>
               <input
                 type="password"
                 value={pw.newPw}
                 onChange={e => setPw(p => ({ ...p, newPw: e.target.value }))}
-                placeholder="Min 8 characters"
+                placeholder="Choose a strong password"
                 style={inputStyle(pwErrs.newPw)}
               />
             </Field>

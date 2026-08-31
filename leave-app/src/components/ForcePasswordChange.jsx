@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { clearMustChangePassword, signOut } from '../lib/api'
 import { useAuth } from '../lib/AuthContext'
+import { passwordError, PASSWORD_HINT } from '../lib/password'
 import { C, Field, btnStyle, inputStyle } from './UI'
 
 export default function ForcePasswordChange({ employee }) {
@@ -13,7 +14,8 @@ export default function ForcePasswordChange({ employee }) {
 
   const submit = async (e) => {
     e.preventDefault()
-    if (!newPw || newPw.length < 8) { setError('Min 8 characters'); return }
+    const pwRuleErr = passwordError(newPw)
+    if (pwRuleErr)                  { setError(pwRuleErr); return }
     if (newPw !== confirm)          { setError('Passwords do not match'); return }
     // Deliberately no "new password must differ from the temp password"
     // check here (unlike Profile.jsx's change-password flow). The temp
@@ -57,12 +59,12 @@ export default function ForcePasswordChange({ employee }) {
         </div>
 
         <form onSubmit={submit}>
-          <Field label="New Password">
+          <Field label="New Password" hint={PASSWORD_HINT}>
             <input
               type="password" required autoFocus
               value={newPw}
               onChange={e => setNewPw(e.target.value)}
-              placeholder="Min 8 characters"
+              placeholder="Choose a strong password"
               style={inputStyle()}
             />
           </Field>

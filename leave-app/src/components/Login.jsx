@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { signIn } from '../lib/api'
 import { supabase } from '../lib/supabase'
+import { passwordError, PASSWORD_HINT } from '../lib/password'
 import { C, btnStyle, inputStyle, Field } from './UI'
 
 // ── Shared card wrapper ────────────────────────────────────────────────────────
@@ -159,7 +160,8 @@ function ForgotPassword({ onBack }) {
   // Step 3 — set new password
   const resetPassword = async (e) => {
     e.preventDefault()
-    if (!newPw || newPw.length < 8) { setError('Min 8 characters'); return }
+    const pwErr = passwordError(newPw)
+    if (pwErr)                       { setError(pwErr); return }
     if (newPw !== confirm)           { setError('Passwords do not match'); return }
     setError('')
     setLoading(true)
@@ -255,12 +257,12 @@ function ForgotPassword({ onBack }) {
           <div style={{ fontSize: 13, color: C.textSec, marginBottom: 20 }}>
             Choose a strong new password for your account.
           </div>
-          <Field label="New Password">
+          <Field label="New Password" hint={PASSWORD_HINT}>
             <input
               type="password" required autoFocus
               value={newPw}
               onChange={e => setNewPw(e.target.value)}
-              placeholder="Min 8 characters"
+              placeholder="Choose a strong password"
               style={inputStyle()}
             />
           </Field>
