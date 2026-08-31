@@ -1,16 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   fetchEmployees, createEmployee, updateEmployee, deactivateEmployee, reactivateEmployee, resetEmployeePassword,
   fetchSalary, upsertSalary, fetchApprovers, setApprovers,
-  fetchLeaveTypes, fetchLeaveAdjustments, upsertLeaveAdjustment, grantCompOff,
+  fetchLeaveTypes, fetchLeaveAdjustments, upsertLeaveAdjustment, grantCompOff, adminAddLeave,
   fetchLeaveBalance, fetchHolidays, createHoliday, deleteHoliday, fetchAuditLog,
   fetchAllLeaveRequests, fetchAllAttendance,
+  fetchMyLeaves, fetchTimesheetHistory, fetchTimesheetEntries, fetchAttendanceHistory, getMedicalCertificateUrl,
 } from '../lib/api'
+import { workingDays } from '../lib/leaveDays'
 import { rowsToCsv, downloadCsv, parseCsv } from '../lib/csv'
 import { printPayslip } from '../lib/payslip'
 import { generateEmpCode } from '../lib/employeeCode'
 import BulkAddEmployees from './BulkAddEmployees'
-import { Avatar, C, Confirm, Empty, Field, OffboardModal, ResetPasswordModal, SecTitle, Spinner, btnStyle, card, inputStyle, formatDate } from './UI'
+import { Avatar, Badge, C, Confirm, Empty, Field, OffboardModal, ResetPasswordModal, SecTitle, Spinner, btnStyle, card, inputStyle, formatDate } from './UI'
 
 const ROLES = { admin: 'Admin', manager: 'Manager', employee: 'Employee' }
 const DEPTS = ['Engineering', 'HR', 'Finance', 'Sales', 'Operations', 'Marketing', 'Design', 'Product']
@@ -51,6 +53,23 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
   const [activeTab, setActiveTab]       = useState(initialTab)
   const [adminConfirmOpen, setAdminConfirmOpen] = useState(false)
 
+  // Activity tab — leave/timesheet/attendance history, folded in from
+  // what used to be Team's per-employee detail view so admins have one
+  // place for everything instead of switching to a separate Team tab.
+  const [activityLeaves,     setActivityLeaves]     = useState([])
+  const [activityTimesheets, setActivityTimesheets] = useState([])
+  const [activityAttendance, setActivityAttendance] = useState([])
+  const [expandedTs, setExpandedTs] = useState(null)
+  const [tsEntries,  setTsEntries]  = useState({})
+
+  // Add Leave Record — lets an admin insert an already-approved leave
+  // directly (backdating, regularizing something never applied for),
+  // distinct from the entitlement adjustment below it.
+  const [holidaySet, setHolidaySet]   = useState(new Set())
+  const [addLeaveForm, setAddLeaveForm] = useState({ type: 'annual', from: '', to: '', reason: '' })
+  const [addLeaveErrs, setAddLeaveErrs] = useState({})
+  const [addingLeave,  setAddingLeave]  = useState(false)
+
   const activeOtherAdmins = employees.filter(e => e.role === 'admin' && e.is_active !== false && e.id !== initial?.id).length
   const isGrantingAdmin = form.role === 'admin' && (!isEdit || initial.role !== 'admin')
   const isLastAdminDemotion = isEdit && initial?.role === 'admin' && form.role !== 'admin' && activeOtherAdmins === 0
@@ -77,11 +96,27 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
         setOrigLeaveAdj(adj)
         setLeaveReasons(reasons)
       })
+      fetchMyLeaves(initial.id).then(({ data, error }) => {
+        if (error) onToast?.('Failed to load leave history', 'error')
+        setActivityLeaves(data || [])
+      })
+      fetchTimesheetHistory(initial.id).then(({ data, error }) => {
+        if (error) onToast?.('Failed to load timesheets', 'error')
+        setActivityTimesheets(data || [])
+      })
+      fetchAttendanceHistory(initial.id, 30).then(({ data, error }) => {
+        if (error) onToast?.('Failed to load attendance', 'error')
+        setActivityAttendance(data || [])
+      })
     }
     setApproversState(employees.filter(e => e.id !== initial?.id))
     fetchLeaveTypes().then(({ data, error }) => {
       if (error) onToast?.('Failed to load leave types', 'error')
       setLeaveTypes(data || [])
+    })
+    fetchHolidays().then(({ data, error }) => {
+      if (error) onToast?.('Failed to load holidays', 'error')
+      setHolidaySet(new Set((data || []).map(h => h.holiday_date)))
     })
   }, [initial?.id])
 
@@ -173,6 +208,60 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
     onSave()
   }
 
+  const formatTime = (ts) => {
+    if (!ts) return '—'
+    return new Date(ts).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
+  }
+
+  const loadTsEntries = async (tsId) => {
+    if (expandedTs === tsId) { setExpandedTs(null); return }
+    if (!tsEntries[tsId]) {
+      const { data } = await fetchTimesheetEntries(tsId)
+      setTsEntries(p => ({ ...p, [tsId]: data || [] }))
+    }
+    setExpandedTs(tsId)
+  }
+
+  const viewCertificate = async (value) => {
+    const { url, error } = await getMedicalCertificateUrl(value)
+    if (error || !url) { onToast?.('Failed to load certificate', 'error'); return }
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
+  const addLeaveDays = useMemo(() => {
+    if (!addLeaveForm.from || !addLeaveForm.to || new Date(addLeaveForm.to) < new Date(addLeaveForm.from)) return 0
+    return workingDays(addLeaveForm.from, addLeaveForm.to, holidaySet)
+  }, [addLeaveForm.from, addLeaveForm.to, holidaySet])
+
+  const submitAddLeave = async () => {
+    const e = {}
+    if (!addLeaveForm.from)  e.from = 'Required'
+    if (!addLeaveForm.to)    e.to   = 'Required'
+    if (addLeaveForm.from && addLeaveForm.to && new Date(addLeaveForm.to) < new Date(addLeaveForm.from)) e.to = 'Must be after start'
+    if (!addLeaveForm.reason.trim()) e.reason = 'Required'
+    const bal = empBalance.find(b => b.type_code === addLeaveForm.type)
+    if (bal && addLeaveDays > bal.remaining) e.to = `Only ${bal.remaining}d available — use the entitlement adjustment below to grant more first`
+    if (Object.keys(e).length) { setAddLeaveErrs(e); return }
+
+    setAddingLeave(true)
+    const { error } = await adminAddLeave({
+      employee_id: initial.id,
+      leave_type:  addLeaveForm.type,
+      from_date:   addLeaveForm.from,
+      to_date:     addLeaveForm.to,
+      days:        addLeaveDays,
+      reason:      addLeaveForm.reason.trim(),
+    })
+    setAddingLeave(false)
+    if (error) { onToast?.(error.message || 'Failed to add leave', 'error'); return }
+
+    onToast?.('Leave added')
+    setAddLeaveForm({ type: 'annual', from: '', to: '', reason: '' })
+    setAddLeaveErrs({})
+    fetchLeaveBalance(initial.id).then(({ data }) => setEmpBalance(data || []))
+    fetchMyLeaves(initial.id).then(({ data }) => setActivityLeaves(data || []))
+  }
+
   const validateCompForm = () => {
     const e = {}
     if (!compForm.workedDate) e.workedDate = 'Required'
@@ -221,6 +310,7 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
         <TB id="approvers" label="Approvers" />
         {isEdit && <TB id="leave" label="Leave" />}
         {isEdit && <TB id="comp" label="Comp Off" />}
+        {isEdit && <TB id="activity" label="Activity" />}
       </div>
 
       {/* Details tab */}
@@ -358,6 +448,35 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
               </div>
             </>
           )}
+          <div style={{ ...card, marginBottom: 16 }}>
+            <SecTitle>Add Leave Record</SecTitle>
+            <div style={{ fontSize: 12, color: C.textSec, marginBottom: 12, lineHeight: 1.6 }}>
+              Records an already-approved leave directly — for backdating or regularizing something the employee never applied for. Deducts from their balance immediately.
+            </div>
+            <Field label="Leave Type">
+              <select value={addLeaveForm.type} onChange={e => setAddLeaveForm(f => ({ ...f, type: e.target.value }))} style={inputStyle()}>
+                {leaveTypes.filter(lt => !lt.is_comp_off).map(lt => <option key={lt.code} value={lt.code}>{lt.label}</option>)}
+              </select>
+            </Field>
+            <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <Field label="From" error={addLeaveErrs.from}>
+                <input type="date" value={addLeaveForm.from} onChange={e => setAddLeaveForm(f => ({ ...f, from: e.target.value }))} style={inputStyle(addLeaveErrs.from)} />
+              </Field>
+              <Field label="To" error={addLeaveErrs.to}>
+                <input type="date" value={addLeaveForm.to} onChange={e => setAddLeaveForm(f => ({ ...f, to: e.target.value }))} style={inputStyle(addLeaveErrs.to)} />
+              </Field>
+            </div>
+            <Field label="Reason" error={addLeaveErrs.reason}>
+              <input value={addLeaveForm.reason} onChange={e => setAddLeaveForm(f => ({ ...f, reason: e.target.value }))} placeholder="e.g. Regularizing unplanned absence on 12 Aug" style={inputStyle(addLeaveErrs.reason)} />
+            </Field>
+            {addLeaveDays > 0 && (
+              <div style={{ fontSize: 11, color: C.textSec, marginBottom: 10 }}>{addLeaveDays} working day{addLeaveDays !== 1 ? 's' : ''}</div>
+            )}
+            <button onClick={submitAddLeave} disabled={addingLeave} style={{ ...btnStyle(C.green, '#fff'), width: '100%', opacity: addingLeave ? 0.7 : 1 }}>
+              {addingLeave ? 'Adding…' : 'Add Leave'}
+            </button>
+          </div>
+
           <div style={{ ...card, background: C.amberBg, border: `0.5px solid #E8C97A`, marginBottom: 16 }}>
             <div style={{ fontSize: 13, fontWeight: 500, color: '#854F0B', marginBottom: 4 }}>Admin leave override</div>
             <div style={{ fontSize: 12, color: '#854F0B', lineHeight: 1.6 }}>
@@ -479,11 +598,126 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
         </div>
       )}
 
-      <div style={{ marginTop: 20 }}>
-        <button onClick={handleSaveClick} disabled={saving} style={{ ...btnStyle(C.green, '#fff'), width: '100%', opacity: saving ? 0.7 : 1 }}>
-          {saving ? 'Saving…' : isEdit ? 'Update Employee' : 'Add Employee'}
-        </button>
-      </div>
+      {/* Activity tab — read-only history, folded in from Team */}
+      {activeTab === 'activity' && isEdit && (
+        <div>
+          <SecTitle>Leave History</SecTitle>
+          {activityLeaves.length === 0 ? <Empty text="No leave requests" /> :
+            activityLeaves.map(l => (
+              <div key={l.id} style={{ ...card, marginBottom: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                  <span style={{ fontSize: 14, fontWeight: 500, textTransform: 'capitalize' }}>{l.leave_type} Leave</span>
+                  <Badge status={l.status} />
+                </div>
+                <div style={{ fontSize: 12, color: C.textSec, marginBottom: 3 }}>
+                  {formatDate(l.from_date)} – {formatDate(l.to_date)} · {l.days} day{l.days > 1 ? 's' : ''}
+                </div>
+                <div style={{ fontSize: 12, color: C.textTert }}>{l.reason}</div>
+                {l.medical_certificate_url && (
+                  <button
+                    onClick={() => viewCertificate(l.medical_certificate_url)}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.blue, marginTop: 5, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline' }}>
+                    📎 Medical certificate
+                  </button>
+                )}
+                {l.reject_reason && (
+                  <div style={{ fontSize: 11, color: C.red, marginTop: 5, background: C.redBg, padding: '4px 8px', borderRadius: 6 }}>
+                    Rejected: {l.reject_reason}
+                  </div>
+                )}
+                <div style={{ fontSize: 10, color: C.textTert, marginTop: 5 }}>Applied {formatDate(l.applied_on)}</div>
+              </div>
+            ))
+          }
+
+          <SecTitle style={{ marginTop: 18 }}>Timesheets</SecTitle>
+          {activityTimesheets.length === 0 ? <Empty text="No timesheets yet" /> :
+            activityTimesheets.map(ts => {
+              const entries = tsEntries[ts.id] || []
+              return (
+                <div key={ts.id} style={{ ...card, marginBottom: 10 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>Week of {formatDate(ts.week_start)}</div>
+                      <div style={{ fontSize: 11, color: C.textSec, marginTop: 2 }}>
+                        {ts.total_hours}h logged
+                        {ts.submitted_at && ` · Submitted ${formatDate(ts.submitted_at)}`}
+                      </div>
+                    </div>
+                    <Badge status={ts.status} />
+                  </div>
+                  {ts.reject_reason && (
+                    <div style={{ fontSize: 11, color: C.red, background: C.redBg, padding: '4px 8px', borderRadius: 6, marginBottom: 6 }}>
+                      Rejected: {ts.reject_reason}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => loadTsEntries(ts.id)}
+                    style={{ ...btnStyle(C.bgSec, C.textSec), fontSize: 11, padding: '4px 10px', width: '100%' }}
+                  >
+                    {expandedTs === ts.id ? '▲ Hide entries' : '▼ View entries'}
+                  </button>
+                  {expandedTs === ts.id && entries.length > 0 && (
+                    <div style={{ marginTop: 8 }}>
+                      {entries.map(e => (
+                        <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: `0.5px solid ${C.bgTert}` }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            {e.jira_issue_key && (
+                              <span style={{ background: C.blueBg, color: C.blue, fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 5, marginRight: 5 }}>
+                                {e.jira_issue_key}
+                              </span>
+                            )}
+                            <span style={{ fontSize: 12 }}>
+                              {new Date(e.date + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })} · {e.task_description}
+                            </span>
+                          </div>
+                          <span style={{ fontSize: 12, fontWeight: 600, flexShrink: 0, marginLeft: 8 }}>{e.hours}h</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })
+          }
+
+          <SecTitle style={{ marginTop: 18 }}>Attendance (last 30 days)</SecTitle>
+          {activityAttendance.length === 0 ? <Empty text="No attendance records" /> :
+            activityAttendance.map(a => (
+              <div key={a.id} style={{ ...card, marginBottom: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>
+                      {new Date(a.date + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                    </div>
+                    <div style={{ fontSize: 11, color: C.textSec, marginTop: 3 }}>
+                      In: {formatTime(a.check_in_time)} · Out: {formatTime(a.check_out_time)}
+                    </div>
+                    {a.check_in_address && (
+                      <div style={{ fontSize: 10, color: C.textTert, marginTop: 3 }}>📍 {a.check_in_address}</div>
+                    )}
+                  </div>
+                  {a.total_hours != null ? (
+                    <span style={{ background: C.greenBg, color: '#0F6E56', fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 20 }}>
+                      {a.total_hours.toFixed(1)}h
+                    </span>
+                  ) : a.check_in_time ? (
+                    <span style={{ background: C.amberBg, color: C.amber, fontSize: 11, padding: '3px 10px', borderRadius: 20 }}>In only</span>
+                  ) : null}
+                </div>
+              </div>
+            ))
+          }
+        </div>
+      )}
+
+      {activeTab !== 'activity' && (
+        <div style={{ marginTop: 20 }}>
+          <button onClick={handleSaveClick} disabled={saving} style={{ ...btnStyle(C.green, '#fff'), width: '100%', opacity: saving ? 0.7 : 1 }}>
+            {saving ? 'Saving…' : isEdit ? 'Update Employee' : 'Add Employee'}
+          </button>
+        </div>
+      )}
 
       {adminConfirmOpen && (
         <Confirm

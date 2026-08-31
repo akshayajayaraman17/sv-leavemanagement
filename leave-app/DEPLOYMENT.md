@@ -27,8 +27,9 @@ Run each of these files, in order, in the Supabase **SQL Editor** (New query →
 9. `supabase/migration-self-service-profile.sql` — adds `employees.address` (Profile's address field previously had nowhere to save), a self-update RLS policy + column-restricting trigger (employees could not previously update even their own phone/address), and `must_change_password` for the forced password-change flow
 10. `supabase/migration-employee-offboarding.sql` — adds `employees.exit_date` / `exit_reason`, and extends the self-update guard from file 9 so an employee can't set those on their own row
 11. `supabase/migration-probation-tiered-leave.sql` — real leave policy, not reflected anywhere before: tenure-tiered Annual (16/18/20 days) and Medical/"sick" (14/18/22 days) entitlement, and a 6-month probation from `joining_date` during which no leave of any kind accrues. **Changes the current-year balance shown for every existing employee immediately on running it** — e.g. someone with 3 years' service previously saw a flat 20 annual days, now sees 18 (tiered)
+12. `supabase/migration-admin-add-leave.sql` — lets an admin insert a leave record directly (Admin Panel's "Add Leave Record"), pre-approved. Without this, `leave_requests_insert`'s RLS policy only allows `employee_id = auth.uid()`, so an admin trying to add leave on someone else's behalf gets rejected outright
 
-All eleven are idempotent (`if not exists` / `create or replace` / `drop policy if exists`), so re-running any of them is safe. You should see "Success. No rows returned" after each.
+All twelve are idempotent (`if not exists` / `create or replace` / `drop policy if exists`), so re-running any of them is safe. You should see "Success. No rows returned" after each.
 
 **Note on file 5:** the overlap constraint will fail to create if any employee already has two overlapping pending/approved leave requests in the table — Postgres reports the exact conflicting rows in the error if so. Resolve those first, then re-run.
 
@@ -48,7 +49,7 @@ All eleven are idempotent (`if not exists` / `create or replace` / `drop policy 
 There are five Edge Functions:
 
 - `create-employee` — creates auth users + employee records in one atomic operation.
-- `offboard-employee` — deactivates/reactivates an employee: bans/unbans their Supabase Auth account (via `service_role`) and updates `is_active`/`exit_date`/`exit_reason` together. Without this deployed, the Admin/Team "Deactivate" button will fail — there's no client-side fallback, since banning an auth user can only be done server-side.
+- `offboard-employee` — deactivates/reactivates an employee: bans/unbans their Supabase Auth account (via `service_role`) and updates `is_active`/`exit_date`/`exit_reason` together. Without this deployed, the Admin Panel "Deactivate" button will fail — there's no client-side fallback, since banning an auth user can only be done server-side.
 - `reset-employee-password` — lets an admin set an employee's password directly via the Auth Admin API, no email involved. Exists as a way to unblock someone that doesn't depend on Forgot Password's SMTP being correctly configured; forces a password change on their next login, same as any other admin-set password.
 - `send-notification` — emails an employee when their leave/comp-off/timesheet/regularization request is approved or rejected. **Optional** — the app works fully without it; skip it if you don't want email notifications yet.
 - `post-jira-worklog` — posts worklogs to a user's personal Jira account (only needed if you use the Jira integration).

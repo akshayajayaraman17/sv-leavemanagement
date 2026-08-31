@@ -1,20 +1,12 @@
 import { useEffect, useState } from 'react'
 import {
-  fetchEmployees, fetchLeaveBalance, fetchMyLeaves, updateEmployee,
-  deactivateEmployee, reactivateEmployee, resetEmployeePassword,
-  fetchTimesheetHistory, fetchTimesheetEntries, fetchSalary,
+  fetchEmployees, fetchLeaveBalance, fetchMyLeaves,
+  fetchTimesheetHistory, fetchTimesheetEntries,
   fetchAttendanceHistory, getMedicalCertificateUrl,
 } from '../lib/api'
-import { Avatar, Badge, C, Empty, Field, OffboardModal, ResetPasswordModal, SecTitle, Spinner, card, formatDate, inputStyle, btnStyle } from './UI'
+import { Avatar, Badge, C, Empty, SecTitle, Spinner, card, formatDate, btnStyle, inputStyle } from './UI'
 
 const ROLES = { admin: 'Admin', manager: 'Manager', employee: 'Employee' }
-
-const TS_STATUS_COLOR = {
-  draft:     { bg: C.bgTert,  color: C.textSec },
-  submitted: { bg: C.amberBg, color: C.amber   },
-  approved:  { bg: C.greenBg, color: '#0F6E56' },
-  rejected:  { bg: C.redBg,   color: C.red     },
-}
 
 // ── Tab button ────────────────────────────────────────────────────────────────
 function TB({ active, label, onClick }) {
@@ -34,113 +26,29 @@ function formatTime(ts) {
 }
 
 // ── Employee detail view ──────────────────────────────────────────────────────
-function EmployeeDetail({ emp: empProp, viewerRole, allEmployees, onBack, onToast }) {
-  const [emp,        setEmp]       = useState(empProp)
+// Read-only — managers browsing their reports. Admins manage employees
+// (edit/deactivate/reset password/salary) from the Admin Panel instead,
+// which has its own Activity tab covering this same leave/timesheet/
+// attendance history, so there's one place for that rather than two.
+function EmployeeDetail({ emp, allEmployees, onBack, onToast }) {
   const [tab,        setTab]       = useState('profile')
   const [balances,   setBalances]  = useState([])
   const [leaves,     setLeaves]    = useState([])
   const [timesheets, setTimesheets]= useState([])
   const [attendance, setAttendance]= useState([])
-  const [salary,     setSalary]    = useState(null)
   const [loading,    setLoading]   = useState(true)
   const [expandedTs, setExpandedTs]= useState(null)
   const [tsEntries,  setTsEntries] = useState({})
-  const [editing,    setEditing]   = useState(false)
-  const [form,       setForm]      = useState(null)
-  const [saving,     setSaving]    = useState(false)
-  const [offering,   setOffering]  = useState(false)   // offboard modal open
-  const [offboarding,setOffboarding]=useState(false)   // offboard request in flight
-
-  const isAdmin = viewerRole === 'admin'
-
-  const startEdit = () => {
-    setForm({
-      phone:         emp.phone         || '',
-      employee_code: emp.employee_code || '',
-      department:    emp.department    || '',
-      designation:   emp.designation   || '',
-      role:          emp.role,
-      manager_id:    emp.manager_id    || '',
-      joining_date:  emp.joining_date  || '',
-    })
-    setEditing(true)
-  }
-
-  const saveEdit = async () => {
-    if (!form.employee_code.trim()) { onToast?.('Employee code is required', 'error'); return }
-    if (!form.joining_date)         { onToast?.('Date of joining is required', 'error'); return }
-
-    const activeOtherAdmins = allEmployees.filter(e => e.role === 'admin' && e.is_active !== false && e.id !== emp.id).length
-    if (emp.role === 'admin' && form.role !== 'admin' && activeOtherAdmins === 0) {
-      onToast?.('Cannot change role — at least one active admin must remain', 'error')
-      return
-    }
-
-    setSaving(true)
-    const updates = {
-      employee_code: form.employee_code.trim(),
-      phone:         form.phone.trim() || null,
-      department:    form.department.trim() || null,
-      designation:   form.designation.trim() || null,
-      role:          form.role,
-      manager_id:    form.manager_id || null,
-      joining_date:  form.joining_date,
-    }
-    const { error } = await updateEmployee(emp.id, updates)
-    setSaving(false)
-    if (error) { onToast?.(error.message || 'Failed to update employee', 'error'); return }
-
-    setEmp(e => ({ ...e, ...updates }))
-    setEditing(false)
-    onToast?.('Employee updated')
-  }
-
-  const handleDeactivate = async ({ exitDate, exitReason }) => {
-    const activeOtherAdmins = allEmployees.filter(e => e.role === 'admin' && e.is_active !== false && e.id !== emp.id).length
-    if (emp.role === 'admin' && activeOtherAdmins === 0) {
-      onToast?.('Cannot deactivate — at least one active admin must remain', 'error')
-      setOffering(false)
-      return
-    }
-    setOffboarding(true)
-    const { data, error } = await deactivateEmployee(emp.id, { exitDate, exitReason })
-    setOffboarding(false)
-    if (error) { onToast?.(typeof error === 'string' ? error : error.message, 'error'); return }
-    setEmp(e => ({ ...e, ...data }))
-    setOffering(false)
-    onToast?.('Employee deactivated')
-  }
-
-  const handleReactivate = async () => {
-    const { data, error } = await reactivateEmployee(emp.id)
-    if (error) { onToast?.(typeof error === 'string' ? error : error.message, 'error'); return }
-    setEmp(e => ({ ...e, ...data }))
-    onToast?.('Employee reactivated')
-  }
-
-  const [resettingPw, setResettingPw] = useState(false)
-  const [showReset,   setShowReset]   = useState(false)
-
-  const handleResetPassword = async (password) => {
-    setResettingPw(true)
-    const { error } = await resetEmployeePassword(emp.id, password)
-    setResettingPw(false)
-    if (error) { onToast?.(typeof error === 'string' ? error : error.message, 'error'); return }
-    setShowReset(false)
-    onToast?.('Password set — share it with them directly')
-  }
 
   useEffect(() => {
     setLoading(true)
     const report = (label) => ({ error }) => { if (error) onToast?.(`Failed to load ${label}`, 'error') }
-    const calls = [
+    Promise.all([
       fetchLeaveBalance(emp.id).then(r => { report('leave balance')(r); setBalances(r.data || []) }),
       fetchMyLeaves(emp.id).then(r => { report('leave history')(r); setLeaves(r.data || []) }),
       fetchTimesheetHistory(emp.id).then(r => { report('timesheets')(r); setTimesheets(r.data || []) }),
       fetchAttendanceHistory(emp.id, 30).then(r => { report('attendance')(r); setAttendance(r.data || []) }),
-    ]
-    if (isAdmin) calls.push(fetchSalary(emp.id).then(r => { setSalary(r.data) }))
-    Promise.all(calls).finally(() => setLoading(false))
+    ]).finally(() => setLoading(false))
   }, [emp.id])
 
   const loadTsEntries = async (tsId) => {
@@ -162,24 +70,6 @@ function EmployeeDetail({ emp: empProp, viewerRole, allEmployees, onBack, onToas
 
   return (
     <div>
-      {offering && (
-        <OffboardModal
-          name={emp.full_name}
-          submitting={offboarding}
-          onConfirm={handleDeactivate}
-          onCancel={() => setOffering(false)}
-        />
-      )}
-
-      {showReset && (
-        <ResetPasswordModal
-          name={emp.full_name}
-          submitting={resettingPw}
-          onConfirm={handleResetPassword}
-          onCancel={() => setShowReset(false)}
-        />
-      )}
-
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
         <button onClick={onBack} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '6px 12px', fontSize: 12 }}>‹ Back</button>
@@ -196,7 +86,6 @@ function EmployeeDetail({ emp: empProp, viewerRole, allEmployees, onBack, onToas
         <TB id="leaves"     active={tab==='leaves'}     label="Leaves"     onClick={() => setTab('leaves')} />
         <TB id="timesheet"  active={tab==='timesheet'}  label="Timesheet"  onClick={() => setTab('timesheet')} />
         <TB id="attendance" active={tab==='attendance'} label="Attendance" onClick={() => setTab('attendance')} />
-        {isAdmin && <TB id="salary" active={tab==='salary'} label="Salary" onClick={() => setTab('salary')} />}
       </div>
 
       {loading ? <Spinner /> : <>
@@ -205,90 +94,28 @@ function EmployeeDetail({ emp: empProp, viewerRole, allEmployees, onBack, onToas
         {tab === 'profile' && (
           <div>
             <div style={{ ...card, marginBottom: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <SecTitle>Personal Info</SecTitle>
-                {isAdmin && !editing && (
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button onClick={startEdit} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '5px 12px', fontSize: 12 }}>
-                      Edit
-                    </button>
-                    <button onClick={() => setShowReset(true)} style={{ ...btnStyle(C.blueBg, C.blue), padding: '5px 12px', fontSize: 12 }}>
-                      Reset Password
-                    </button>
-                    {emp.is_active
-                      ? <button onClick={() => setOffering(true)} style={{ ...btnStyle(C.redBg, C.red), padding: '5px 12px', fontSize: 12 }}>Deactivate</button>
-                      : <button onClick={handleReactivate} style={{ ...btnStyle(C.greenBg, '#0F6E56'), padding: '5px 12px', fontSize: 12 }}>Reactivate</button>}
-                  </div>
-                )}
-              </div>
-
-              {!editing ? (
-                [
-                  ['Email',         emp.email],
-                  ['Phone',         emp.phone   || '—'],
-                  ['Address',       emp.address || '—'],
-                  ['Employee Code', emp.employee_code],
-                  ['Role',          ROLES[emp.role]],
-                  ['Department',    emp.department  || '—'],
-                  ['Designation',   emp.designation || '—'],
-                  ['Reporting Manager', manager?.full_name || '—'],
-                  ['Date of Joining',   formatDate(emp.joining_date)],
-                  ['Status',        emp.is_active ? 'Active' : 'Inactive'],
-                  ...(!emp.is_active && emp.exit_date ? [['Last Working Day', formatDate(emp.exit_date)]] : []),
-                  ...(!emp.is_active && emp.exit_reason ? [['Exit Reason', emp.exit_reason]] : []),
-                ].map(([label, value]) => (
-                  <div key={label} style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-                    padding: '8px 0', borderBottom: `0.5px solid ${C.border}`, gap: 12,
-                  }}>
-                    <span style={{ fontSize: 13, color: C.textSec, flexShrink: 0 }}>{label}</span>
-                    <span style={{ fontSize: 13, fontWeight: 500, textAlign: 'right' }}>{value}</span>
-                  </div>
-                ))
-              ) : (
-                <div style={{ marginTop: 10 }}>
-                  <Field label="Employee Code">
-                    <input value={form.employee_code} onChange={e => setForm(f => ({ ...f, employee_code: e.target.value }))} style={inputStyle()} />
-                  </Field>
-                  <Field label="Phone">
-                    <input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} style={inputStyle()} placeholder="+91 98765 43210" />
-                  </Field>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    <Field label="Department">
-                      <input value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))} style={inputStyle()} />
-                    </Field>
-                    <Field label="Designation">
-                      <input value={form.designation} onChange={e => setForm(f => ({ ...f, designation: e.target.value }))} style={inputStyle()} />
-                    </Field>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    <Field label="Role">
-                      <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} style={inputStyle()}>
-                        {Object.entries(ROLES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                      </select>
-                    </Field>
-                    <Field label="Date of Joining">
-                      <input type="date" value={form.joining_date} onChange={e => setForm(f => ({ ...f, joining_date: e.target.value }))} style={inputStyle()} />
-                    </Field>
-                  </div>
-                  <Field label="Reporting Manager">
-                    <select value={form.manager_id} onChange={e => setForm(f => ({ ...f, manager_id: e.target.value }))} style={inputStyle()}>
-                      <option value="">— No manager —</option>
-                      {allEmployees.filter(e => e.id !== emp.id && e.role !== 'employee').map(e => (
-                        <option key={e.id} value={e.id}>{e.full_name} ({ROLES[e.role]})</option>
-                      ))}
-                    </select>
-                  </Field>
-                  <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                    <button onClick={() => setEditing(false)} disabled={saving} style={{ ...btnStyle(C.bgSec, C.textSec), flex: 1, fontSize: 13 }}>
-                      Cancel
-                    </button>
-                    <button onClick={saveEdit} disabled={saving} style={{ ...btnStyle(C.green, '#fff'), flex: 1, fontSize: 13, opacity: saving ? 0.7 : 1 }}>
-                      {saving ? 'Saving…' : 'Save Changes'}
-                    </button>
-                  </div>
+              <SecTitle>Personal Info</SecTitle>
+              {[
+                ['Email',         emp.email],
+                ['Phone',         emp.phone   || '—'],
+                ['Address',       emp.address || '—'],
+                ['Employee Code', emp.employee_code],
+                ['Role',          ROLES[emp.role]],
+                ['Department',    emp.department  || '—'],
+                ['Designation',   emp.designation || '—'],
+                ['Reporting Manager', manager?.full_name || '—'],
+                ['Date of Joining',   formatDate(emp.joining_date)],
+                ['Status',        emp.is_active ? 'Active' : 'Inactive'],
+                ...(!emp.is_active && emp.exit_date ? [['Last Working Day', formatDate(emp.exit_date)]] : []),
+              ].map(([label, value]) => (
+                <div key={label} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+                  padding: '8px 0', borderBottom: `0.5px solid ${C.border}`, gap: 12,
+                }}>
+                  <span style={{ fontSize: 13, color: C.textSec, flexShrink: 0 }}>{label}</span>
+                  <span style={{ fontSize: 13, fontWeight: 500, textAlign: 'right' }}>{value}</span>
                 </div>
-              )}
+              ))}
             </div>
 
             <SecTitle>Leave Balance — {new Date().getFullYear()}</SecTitle>
@@ -346,7 +173,6 @@ function EmployeeDetail({ emp: empProp, viewerRole, allEmployees, onBack, onToas
           <div>
             {timesheets.length === 0 ? <Empty text="No timesheets yet" /> :
               timesheets.map(ts => {
-                const sc = TS_STATUS_COLOR[ts.status] || TS_STATUS_COLOR.draft
                 const entries = tsEntries[ts.id] || []
                 return (
                   <div key={ts.id} style={{ ...card, marginBottom: 10 }}>
@@ -358,9 +184,7 @@ function EmployeeDetail({ emp: empProp, viewerRole, allEmployees, onBack, onToas
                           {ts.submitted_at && ` · Submitted ${formatDate(ts.submitted_at)}`}
                         </div>
                       </div>
-                      <span style={{ background: sc.bg, color: sc.color, fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20 }}>
-                        {ts.status.charAt(0).toUpperCase() + ts.status.slice(1)}
-                      </span>
+                      <Badge status={ts.status} />
                     </div>
                     {ts.reject_reason && (
                       <div style={{ fontSize: 11, color: C.red, background: C.redBg, padding: '4px 8px', borderRadius: 6, marginBottom: 6 }}>
@@ -431,57 +255,6 @@ function EmployeeDetail({ emp: empProp, viewerRole, allEmployees, onBack, onToas
           </div>
         )}
 
-        {/* ── Salary tab (admin only) ── */}
-        {tab === 'salary' && isAdmin && (
-          <div>
-            {!salary ? (
-              <Empty text="No salary details on record" />
-            ) : (
-              <>
-                <div style={{ ...card, background: C.greenBg, border: `0.5px solid #9FE1CB`, marginBottom: 16 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                    {[
-                      ['Gross',      ['basic_salary','hra','transport_allowance','other_allowances'].reduce((s,k) => s + (parseFloat(salary[k]) || 0), 0), C.green],
-                      ['Deductions', ['pf_deduction','tax_deduction','other_deductions'].reduce((s,k) => s + (parseFloat(salary[k]) || 0), 0), C.red],
-                      ['Net',        ['basic_salary','hra','transport_allowance','other_allowances'].reduce((s,k) => s + (parseFloat(salary[k]) || 0), 0)
-                                   - ['pf_deduction','tax_deduction','other_deductions'].reduce((s,k) => s + (parseFloat(salary[k]) || 0), 0), C.green],
-                    ].map(([label, val, color]) => (
-                      <div key={label} style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: 10, color: '#085041', marginBottom: 3 }}>{label}</div>
-                        <div style={{ fontSize: 17, fontWeight: 700, color }}>₹{val.toLocaleString('en-IN')}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <SecTitle>Earnings</SecTitle>
-                {[['Basic Salary','basic_salary'],['HRA','hra'],['Transport','transport_allowance'],['Other','other_allowances']].map(([label, key]) => (
-                  salary[key] > 0 && (
-                    <div key={key} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: `0.5px solid ${C.border}` }}>
-                      <span style={{ fontSize: 13, color: C.textSec }}>{label}</span>
-                      <span style={{ fontSize: 13, fontWeight: 500 }}>₹{parseFloat(salary[key]).toLocaleString('en-IN')}</span>
-                    </div>
-                  )
-                ))}
-
-                <SecTitle style={{ marginTop: 14 }}>Deductions</SecTitle>
-                {[['PF Deduction','pf_deduction'],['Tax (TDS)','tax_deduction'],['Other','other_deductions']].map(([label, key]) => (
-                  salary[key] > 0 && (
-                    <div key={key} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: `0.5px solid ${C.border}` }}>
-                      <span style={{ fontSize: 13, color: C.textSec }}>{label}</span>
-                      <span style={{ fontSize: 13, fontWeight: 500, color: C.red }}>₹{parseFloat(salary[key]).toLocaleString('en-IN')}</span>
-                    </div>
-                  )
-                ))}
-
-                <div style={{ fontSize: 11, color: C.textTert, marginTop: 10 }}>
-                  Effective from {formatDate(salary.effective_from)}
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
       </>}
     </div>
   )
@@ -509,7 +282,6 @@ export default function Team({ viewer, onToast }) {
     return (
       <EmployeeDetail
         emp={selected}
-        viewerRole={viewer.role}
         allEmployees={employees}
         onBack={() => setSelected(null)}
         onToast={onToast}
@@ -533,8 +305,7 @@ export default function Team({ viewer, onToast }) {
         style={{ ...inputStyle(), marginBottom: 14 }}
       />
       <div style={{ fontSize: 11, color: C.textTert, marginBottom: 12 }}>
-        {filtered.length} employee{filtered.length !== 1 ? 's' : ''}
-        {viewer.role === 'manager' && ' · Salary details are admin-only'}
+        {filtered.length} employee{filtered.length !== 1 ? 's' : ''} · Salary and admin actions are in Admin Panel
       </div>
 
       {filtered.length === 0 ? <Empty text="No employees found" /> :

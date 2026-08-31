@@ -60,7 +60,6 @@ const NAV = {
     { id: 'history',    label: 'History',     icon: '≡' },
     { id: 'calendar',   label: 'Calendar',    icon: '📅' },
     { id: 'approvals',  label: 'Approvals',   icon: '✓' },
-    { id: 'team',       label: 'Team',        icon: '👥' },
     { id: 'admin',      label: 'Admin',       icon: '⚙' },
     { id: 'jira',       label: 'Jira',        icon: '🔗' },
     { id: 'profile',    label: 'Profile',     icon: '👤' },

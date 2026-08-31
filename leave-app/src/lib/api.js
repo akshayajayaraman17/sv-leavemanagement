@@ -227,6 +227,19 @@ export const applyLeave = async (payload) => {
   return { data, error }
 }
 
+// Admin: record a leave directly, pre-approved — for backdating or
+// regularizing something an employee never applied for themselves.
+// Needs the admin-insert RLS policy from migration-admin-add-leave.sql;
+// approver_id is still computed server-side by the usual trigger.
+export const adminAddLeave = async (payload) => {
+  const { data, error } = await supabase
+    .from('leave_requests')
+    .insert({ ...payload, status: 'approved', decided_on: new Date().toISOString() })
+    .select()
+    .single()
+  return { data, error }
+}
+
 // Best-effort decision-email notification — fire-and-forget, never blocks
 // or fails the caller's approve/reject flow (the DB update already
 // succeeded by the time this is called; email delivery is a side effect).
