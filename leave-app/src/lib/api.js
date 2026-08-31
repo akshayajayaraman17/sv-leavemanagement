@@ -30,33 +30,19 @@ export const fetchEmployee = async (id) => {
   return { data, error }
 }
 
-// Admin: create employee — delegates to the create-employee Edge Function,
-// which verifies the caller is an admin and uses the service_role key to
-// create the auth user + employee record atomically (rolling back the auth
-// user if the employee insert fails).
-export const createEmployee = async (payload) => {
-  const { data, error } = await supabase.functions.invoke('create-employee', {
-    body: {
-      email: payload.email,
-      password: payload.password,
-      full_name: payload.full_name,
-      employee_code: payload.employee_code,
-      phone: payload.phone || null,
-      department: payload.department || null,
-      designation: payload.designation || null,
-      role: payload.role || 'employee',
-      joining_date: payload.joining_date,
-      date_of_birth: payload.date_of_birth || null,
-      manager_id: payload.manager_id || null,
-    },
-  })
+// Every admin-only Edge Function (create/offboard/reset-password) returns
+// errors the same way — this unwraps supabase-js's wrapped function-error
+// shape down to the actual server message once, instead of each call site
+// re-implementing it.
+const invokeAdminFn = async (name, body) => {
+  const { data, error } = await supabase.functions.invoke(name, { body })
 
   if (error) {
-    let message = error.message || 'Failed to create employee'
+    let message = error.message || 'Request failed'
     if (typeof error.context?.json === 'function') {
       try {
-        const body = await error.context.json()
-        if (body?.error) message = body.error
+        const errBody = await error.context.json()
+        if (errBody?.error) message = errBody.error
       } catch { /* response body wasn't JSON — fall back to error.message */ }
     }
     return { data: null, error: message }
@@ -65,6 +51,24 @@ export const createEmployee = async (payload) => {
 
   return { data, error: null }
 }
+
+// Admin: create employee — delegates to the create-employee Edge Function,
+// which verifies the caller is an admin and uses the service_role key to
+// create the auth user + employee record atomically (rolling back the auth
+// user if the employee insert fails).
+export const createEmployee = (payload) => invokeAdminFn('create-employee', {
+  email: payload.email,
+  password: payload.password,
+  full_name: payload.full_name,
+  employee_code: payload.employee_code,
+  phone: payload.phone || null,
+  department: payload.department || null,
+  designation: payload.designation || null,
+  role: payload.role || 'employee',
+  joining_date: payload.joining_date,
+  date_of_birth: payload.date_of_birth || null,
+  manager_id: payload.manager_id || null,
+})
 
 export const updateEmployee = async (id, updates) => {
   const { data, error } = await supabase
@@ -80,29 +84,19 @@ export const updateEmployee = async (id, updates) => {
 // Function, which uses the service_role key to actually ban/unban the
 // Supabase Auth account. A bare is_active update never blocked sign-in —
 // nothing at the Auth layer or in RLS ever checked it.
-const callOffboard = async (body) => {
-  const { data, error } = await supabase.functions.invoke('offboard-employee', { body })
-
-  if (error) {
-    let message = error.message || 'Failed to update employee'
-    if (typeof error.context?.json === 'function') {
-      try {
-        const errBody = await error.context.json()
-        if (errBody?.error) message = errBody.error
-      } catch { /* response body wasn't JSON — fall back to error.message */ }
-    }
-    return { data: null, error: message }
-  }
-  if (data?.error) return { data: null, error: data.error }
-
-  return { data, error: null }
-}
-
 export const deactivateEmployee = (id, { exitDate, exitReason } = {}) =>
-  callOffboard({ id, action: 'deactivate', exit_date: exitDate || null, exit_reason: exitReason || null })
+  invokeAdminFn('offboard-employee', { id, action: 'deactivate', exit_date: exitDate || null, exit_reason: exitReason || null })
 
 export const reactivateEmployee = (id) =>
-  callOffboard({ id, action: 'reactivate' })
+  invokeAdminFn('offboard-employee', { id, action: 'reactivate' })
+
+// Admin: set an employee's password directly (no email involved) —
+// delegates to the reset-employee-password Edge Function. Exists as a
+// way to unblock someone that doesn't depend on the Forgot Password
+// flow's SMTP being correctly configured. Forces a password change on
+// their next login, same as any other admin-set password.
+export const resetEmployeePassword = (id, password) =>
+  invokeAdminFn('reset-employee-password', { id, password })
 
 // ─── Jira integration ─────────────────────────────────────────────────────────
 export const fetchJiraAccount = async (employeeId) => {

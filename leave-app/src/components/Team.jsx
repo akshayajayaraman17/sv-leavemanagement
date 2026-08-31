@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import {
   fetchEmployees, fetchLeaveBalance, fetchMyLeaves, updateEmployee,
-  deactivateEmployee, reactivateEmployee,
+  deactivateEmployee, reactivateEmployee, resetEmployeePassword,
   fetchTimesheetHistory, fetchTimesheetEntries, fetchSalary,
   fetchAttendanceHistory, getMedicalCertificateUrl,
 } from '../lib/api'
-import { Avatar, Badge, C, Empty, Field, OffboardModal, SecTitle, Spinner, card, formatDate, inputStyle, btnStyle } from './UI'
+import { Avatar, Badge, C, Empty, Field, OffboardModal, ResetPasswordModal, SecTitle, Spinner, card, formatDate, inputStyle, btnStyle } from './UI'
 
 const ROLES = { admin: 'Admin', manager: 'Manager', employee: 'Employee' }
 
@@ -118,6 +118,18 @@ function EmployeeDetail({ emp: empProp, viewerRole, allEmployees, onBack, onToas
     onToast?.('Employee reactivated')
   }
 
+  const [resettingPw, setResettingPw] = useState(false)
+  const [showReset,   setShowReset]   = useState(false)
+
+  const handleResetPassword = async (password) => {
+    setResettingPw(true)
+    const { error } = await resetEmployeePassword(emp.id, password)
+    setResettingPw(false)
+    if (error) { onToast?.(typeof error === 'string' ? error : error.message, 'error'); return }
+    setShowReset(false)
+    onToast?.('Password set — share it with them directly')
+  }
+
   useEffect(() => {
     setLoading(true)
     const report = (label) => ({ error }) => { if (error) onToast?.(`Failed to load ${label}`, 'error') }
@@ -159,6 +171,15 @@ function EmployeeDetail({ emp: empProp, viewerRole, allEmployees, onBack, onToas
         />
       )}
 
+      {showReset && (
+        <ResetPasswordModal
+          name={emp.full_name}
+          submitting={resettingPw}
+          onConfirm={handleResetPassword}
+          onCancel={() => setShowReset(false)}
+        />
+      )}
+
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
         <button onClick={onBack} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '6px 12px', fontSize: 12 }}>‹ Back</button>
@@ -190,6 +211,9 @@ function EmployeeDetail({ emp: empProp, viewerRole, allEmployees, onBack, onToas
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button onClick={startEdit} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '5px 12px', fontSize: 12 }}>
                       Edit
+                    </button>
+                    <button onClick={() => setShowReset(true)} style={{ ...btnStyle(C.blueBg, C.blue), padding: '5px 12px', fontSize: 12 }}>
+                      Reset Password
                     </button>
                     {emp.is_active
                       ? <button onClick={() => setOffering(true)} style={{ ...btnStyle(C.redBg, C.red), padding: '5px 12px', fontSize: 12 }}>Deactivate</button>

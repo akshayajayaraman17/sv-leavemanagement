@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { passwordError, PASSWORD_HINT } from '../lib/password'
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 export const C = {
@@ -218,6 +219,50 @@ export function OffboardModal({ name, onConfirm, onCancel, submitting }) {
             style={{ ...btnStyle(C.red, '#fff'), flex: 1, opacity: canSubmit ? 1 : 0.7 }}
           >
             {submitting ? 'Deactivating…' : 'Deactivate'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Reset password modal ──────────────────────────────────────────────────────
+// Admin sets a new password directly (reset-employee-password Edge
+// Function) — no email/SMTP involved, unlike Forgot Password.
+export function ResetPasswordModal({ name, onConfirm, onCancel, submitting }) {
+  const [pw, setPw]           = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [touched, setTouched] = useState(false)
+
+  const pwErr = passwordError(pw)
+  const mismatchErr = confirm && pw !== confirm ? 'Passwords do not match' : null
+  const canSubmit = !submitting && !pwErr && !mismatchErr && confirm
+
+  const submit = () => {
+    setTouched(true)
+    if (canSubmit) onConfirm(pw)
+  }
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+    }}>
+      <div style={{ ...card, maxWidth: 360, width: '90%' }}>
+        <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 8 }}>Reset password for {name}?</div>
+        <div style={{ fontSize: 13, color: C.textSec, marginBottom: 16 }}>
+          Sets their password directly — no email is sent. Share it with them yourself; they'll be forced to change it on next login.
+        </div>
+        <Field label="New Password" error={touched ? pwErr : null} hint={PASSWORD_HINT}>
+          <input type="password" autoFocus value={pw} onChange={e => setPw(e.target.value)} style={inputStyle(touched && pwErr)} />
+        </Field>
+        <Field label="Confirm Password" error={touched ? mismatchErr : null}>
+          <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} style={inputStyle(touched && mismatchErr)} />
+        </Field>
+        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+          <button onClick={onCancel} disabled={submitting} style={{ ...btnStyle(C.bgSec, C.textSec, `0.5px solid ${C.border}`), flex: 1 }}>Cancel</button>
+          <button onClick={submit} disabled={submitting} style={{ ...btnStyle(C.green, '#fff'), flex: 1, opacity: submitting ? 0.7 : 1 }}>
+            {submitting ? 'Setting…' : 'Set Password'}
           </button>
         </div>
       </div>

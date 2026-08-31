@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  fetchEmployees, createEmployee, updateEmployee, deactivateEmployee, reactivateEmployee,
+  fetchEmployees, createEmployee, updateEmployee, deactivateEmployee, reactivateEmployee, resetEmployeePassword,
   fetchSalary, upsertSalary, fetchApprovers, setApprovers,
   fetchLeaveTypes, fetchLeaveAdjustments, upsertLeaveAdjustment, grantCompOff,
   fetchLeaveBalance, fetchHolidays, createHoliday, deleteHoliday, fetchAuditLog,
@@ -10,7 +10,7 @@ import { rowsToCsv, downloadCsv, parseCsv } from '../lib/csv'
 import { printPayslip } from '../lib/payslip'
 import { generateEmpCode } from '../lib/employeeCode'
 import BulkAddEmployees from './BulkAddEmployees'
-import { Avatar, C, Confirm, Empty, Field, OffboardModal, SecTitle, Spinner, btnStyle, card, inputStyle, formatDate } from './UI'
+import { Avatar, C, Confirm, Empty, Field, OffboardModal, ResetPasswordModal, SecTitle, Spinner, btnStyle, card, inputStyle, formatDate } from './UI'
 
 const ROLES = { admin: 'Admin', manager: 'Manager', employee: 'Employee' }
 const DEPTS = ['Engineering', 'HR', 'Finance', 'Sales', 'Operations', 'Marketing', 'Design', 'Product']
@@ -933,6 +933,18 @@ export default function AdminPanel({ onToast }) {
     load()
   }
 
+  const [resetTarget, setResetTarget] = useState(null)
+  const [resetting,   setResetting]   = useState(false)
+
+  const handleResetPassword = async (password) => {
+    setResetting(true)
+    const { error } = await resetEmployeePassword(resetTarget.id, password)
+    setResetting(false)
+    if (error) { onToast(typeof error === 'string' ? error : error.message, 'error'); return }
+    onToast('Password set — share it with them directly')
+    setResetTarget(null)
+  }
+
   if (loading) return <Spinner />
 
   const SectionTab = ({ id, label }) => (
@@ -1019,6 +1031,15 @@ export default function AdminPanel({ onToast }) {
         />
       )}
 
+      {resetTarget && (
+        <ResetPasswordModal
+          name={resetTarget.full_name}
+          submitting={resetting}
+          onConfirm={handleResetPassword}
+          onCancel={() => setResetTarget(null)}
+        />
+      )}
+
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
         <input
           value={q} onChange={e => setQ(e.target.value)}
@@ -1061,6 +1082,7 @@ export default function AdminPanel({ onToast }) {
                       <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
                         <button onClick={() => { setEditing(e); setEditingTab('details'); setView('edit') }} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '6px 12px', fontSize: 12 }}>Edit</button>
                         <button onClick={() => { setEditing(e); setEditingTab('leave'); setView('edit') }} style={{ ...btnStyle(C.purpleBg, '#3C3489'), padding: '6px 12px', fontSize: 12 }}>Add / Remove Leaves</button>
+                        <button onClick={() => setResetTarget(e)} style={{ ...btnStyle(C.blueBg, C.blue), padding: '6px 12px', fontSize: 12 }}>Reset Password</button>
                         {e.is_active
                           ? <button onClick={() => setConfirm(e)} style={{ ...btnStyle(C.redBg, C.red), padding: '6px 12px', fontSize: 12 }}>Deactivate</button>
                           : <button onClick={() => handleReactivate(e.id)} style={{ ...btnStyle(C.greenBg, '#0F6E56'), padding: '6px 12px', fontSize: 12 }}>Reactivate</button>}
@@ -1100,6 +1122,7 @@ export default function AdminPanel({ onToast }) {
                     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                       <button onClick={() => { setEditing(e); setEditingTab('details'); setView('edit') }} style={{ background: 'none', border: 'none', color: C.blue, fontWeight: 500, cursor: 'pointer', fontSize: 12, padding: 0 }}>Edit</button>
                       <button onClick={() => { setEditing(e); setEditingTab('leave'); setView('edit') }} style={{ background: 'none', border: 'none', color: '#3C3489', fontWeight: 500, cursor: 'pointer', fontSize: 12, padding: 0 }}>Leaves</button>
+                      <button onClick={() => setResetTarget(e)} style={{ background: 'none', border: 'none', color: C.blue, fontWeight: 500, cursor: 'pointer', fontSize: 12, padding: 0 }}>Reset Password</button>
                       {e.is_active
                         ? <button onClick={() => setConfirm(e)} style={{ background: 'none', border: 'none', color: C.red, fontWeight: 500, cursor: 'pointer', fontSize: 12, padding: 0 }}>Deactivate</button>
                         : <button onClick={() => handleReactivate(e.id)} style={{ background: 'none', border: 'none', color: C.green, fontWeight: 500, cursor: 'pointer', fontSize: 12, padding: 0 }}>Reactivate</button>}

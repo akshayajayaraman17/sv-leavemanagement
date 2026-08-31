@@ -45,10 +45,11 @@ All eleven are idempotent (`if not exists` / `create or replace` / `drop policy 
 3. Save these for the next steps
 
 ### Step 4: Deploy the Edge Functions
-There are four Edge Functions:
+There are five Edge Functions:
 
 - `create-employee` — creates auth users + employee records in one atomic operation.
 - `offboard-employee` — deactivates/reactivates an employee: bans/unbans their Supabase Auth account (via `service_role`) and updates `is_active`/`exit_date`/`exit_reason` together. Without this deployed, the Admin/Team "Deactivate" button will fail — there's no client-side fallback, since banning an auth user can only be done server-side.
+- `reset-employee-password` — lets an admin set an employee's password directly via the Auth Admin API, no email involved. Exists as a way to unblock someone that doesn't depend on Forgot Password's SMTP being correctly configured; forces a password change on their next login, same as any other admin-set password.
 - `send-notification` — emails an employee when their leave/comp-off/timesheet/regularization request is approved or rejected. **Optional** — the app works fully without it; skip it if you don't want email notifications yet.
 - `post-jira-worklog` — posts worklogs to a user's personal Jira account (only needed if you use the Jira integration).
 
@@ -65,6 +66,7 @@ npx supabase login
 npx supabase link --project-ref YOUR_PROJECT_ID
 npx supabase functions deploy create-employee
 npx supabase functions deploy offboard-employee
+npx supabase functions deploy reset-employee-password
 npx supabase functions deploy send-notification
 npx supabase functions deploy post-jira-worklog
 ```
@@ -225,6 +227,7 @@ leave-app/
 │   └── functions/
 │       ├── create-employee/index.ts        ← Deploy as Edge Function
 │       ├── offboard-employee/index.ts      ← Deploy as Edge Function
+│       ├── reset-employee-password/index.ts ← Deploy as Edge Function
 │       ├── send-notification/index.ts      ← Deploy as Edge Function (optional, needs Resend)
 │       └── post-jira-worklog/index.ts      ← Deploy as Edge Function (optional, needs Jira)
 └── src/
@@ -262,3 +265,4 @@ leave-app/
 - **send-notification** builds every email server-side from a record the caller's own JWT can already see (RLS still applies) — the client can only say *which* existing record to notify about, never supply arbitrary recipient addresses or message content
 - **Forced password change** — any employee created by an admin (single-add or bulk-add, random or shared password) has `must_change_password = true` and cannot use the app until they set their own password. A bare `id = auth.uid()` self-update RLS policy on `employees` would let an employee push a change to *any* column on their own row (including `role`); a trigger restricts a non-admin self-update to only `phone`, `address`, and `must_change_password`
 - **Offboarding** — Deactivate actually bans the employee's Supabase Auth account via `offboard-employee` (service_role only — not something client code can trigger directly), not just `employees.is_active`, which nothing at the Auth layer ever checked. Note this doesn't kill an already-issued access token instantly — it blocks new sign-ins/refreshes, and the app force-signs-out a deactivated employee the next time their record loads, but a token already in hand keeps working until it expires (default 1 hour)
+- **Admin password reset** — `reset-employee-password` lets an admin set anyone's password directly (admin-only, service_role), independent of Forgot Password / SMTP. The password is validated server-side against the same complexity rule as the frontend (`src/lib/password.js`'s `passwordError()`, duplicated in the Edge Function since it runs in Deno) rather than trusting client-side validation alone
