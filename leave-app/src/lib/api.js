@@ -76,15 +76,33 @@ export const updateEmployee = async (id, updates) => {
   return { data, error }
 }
 
-export const deactivateEmployee = async (id) => {
-  const { data, error } = await supabase
-    .from('employees')
-    .update({ is_active: false })
-    .eq('id', id)
-    .select()
-    .single()
-  return { data, error }
+// Admin: deactivate/reactivate — delegates to the offboard-employee Edge
+// Function, which uses the service_role key to actually ban/unban the
+// Supabase Auth account. A bare is_active update never blocked sign-in —
+// nothing at the Auth layer or in RLS ever checked it.
+const callOffboard = async (body) => {
+  const { data, error } = await supabase.functions.invoke('offboard-employee', { body })
+
+  if (error) {
+    let message = error.message || 'Failed to update employee'
+    if (typeof error.context?.json === 'function') {
+      try {
+        const errBody = await error.context.json()
+        if (errBody?.error) message = errBody.error
+      } catch { /* response body wasn't JSON — fall back to error.message */ }
+    }
+    return { data: null, error: message }
+  }
+  if (data?.error) return { data: null, error: data.error }
+
+  return { data, error: null }
 }
+
+export const deactivateEmployee = (id, { exitDate, exitReason } = {}) =>
+  callOffboard({ id, action: 'deactivate', exit_date: exitDate || null, exit_reason: exitReason || null })
+
+export const reactivateEmployee = (id) =>
+  callOffboard({ id, action: 'reactivate' })
 
 // ─── Jira integration ─────────────────────────────────────────────────────────
 export const fetchJiraAccount = async (employeeId) => {

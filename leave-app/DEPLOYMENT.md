@@ -25,8 +25,10 @@ Run each of these files, in order, in the Supabase **SQL Editor** (New query →
 7. `supabase/migration-enhancements.sql` — team calendar RPC + admin audit trail
 8. `supabase/migration-leave-cancellation.sql` — lets an employee cancel their own pending/not-yet-started-approved leave request
 9. `supabase/migration-self-service-profile.sql` — adds `employees.address` (Profile's address field previously had nowhere to save), a self-update RLS policy + column-restricting trigger (employees could not previously update even their own phone/address), and `must_change_password` for the forced password-change flow
+10. `supabase/migration-employee-offboarding.sql` — adds `employees.exit_date` / `exit_reason`, and extends the self-update guard from file 9 so an employee can't set those on their own row
+11. `supabase/migration-probation-tiered-leave.sql` — real leave policy, not reflected anywhere before: tenure-tiered Annual (16/18/20 days) and Medical/"sick" (14/18/22 days) entitlement, and a 6-month probation from `joining_date` during which no leave of any kind accrues. **Changes the current-year balance shown for every existing employee immediately on running it** — e.g. someone with 3 years' service previously saw a flat 20 annual days, now sees 18 (tiered)
 
-All nine are idempotent (`if not exists` / `create or replace` / `drop policy if exists`), so re-running any of them is safe. You should see "Success. No rows returned" after each.
+All eleven are idempotent (`if not exists` / `create or replace` / `drop policy if exists`), so re-running any of them is safe. You should see "Success. No rows returned" after each.
 
 **Note on file 5:** the overlap constraint will fail to create if any employee already has two overlapping pending/approved leave requests in the table — Postgres reports the exact conflicting rows in the error if so. Resolve those first, then re-run.
 
@@ -43,9 +45,10 @@ All nine are idempotent (`if not exists` / `create or replace` / `drop policy if
 3. Save these for the next steps
 
 ### Step 4: Deploy the Edge Functions
-There are two Edge Functions:
+There are four Edge Functions:
 
 - `create-employee` — creates auth users + employee records in one atomic operation.
+- `offboard-employee` — deactivates/reactivates an employee: bans/unbans their Supabase Auth account (via `service_role`) and updates `is_active`/`exit_date`/`exit_reason` together. Without this deployed, the Admin/Team "Deactivate" button will fail — there's no client-side fallback, since banning an auth user can only be done server-side.
 - `send-notification` — emails an employee when their leave/comp-off/timesheet/regularization request is approved or rejected. **Optional** — the app works fully without it; skip it if you don't want email notifications yet.
 - `post-jira-worklog` — posts worklogs to a user's personal Jira account (only needed if you use the Jira integration).
 
@@ -61,6 +64,7 @@ Option B — Supabase CLI:
 npx supabase login
 npx supabase link --project-ref YOUR_PROJECT_ID
 npx supabase functions deploy create-employee
+npx supabase functions deploy offboard-employee
 npx supabase functions deploy send-notification
 npx supabase functions deploy post-jira-worklog
 ```
@@ -90,7 +94,7 @@ INSERT INTO public.employees (
   id, employee_code, full_name, email, role, joining_date
 ) VALUES (
   'PASTE-USER-UUID-HERE',
-  'EMP001',
+  'EMP-001',
   'Your Admin Name',
   'admin@yourcompany.com',
   'admin',
@@ -220,6 +224,7 @@ leave-app/
 │   ├── migration-*.sql
 │   └── functions/
 │       ├── create-employee/index.ts        ← Deploy as Edge Function
+│       ├── offboard-employee/index.ts      ← Deploy as Edge Function
 │       ├── send-notification/index.ts      ← Deploy as Edge Function (optional, needs Resend)
 │       └── post-jira-worklog/index.ts      ← Deploy as Edge Function (optional, needs Jira)
 └── src/
@@ -256,3 +261,4 @@ leave-app/
 - **Team calendar** exposes only name/leave-type/dates for *approved* leave via a narrow `SECURITY DEFINER` function — it never has access to `reason`, `reject_reason`, or medical certificate links, regardless of caller
 - **send-notification** builds every email server-side from a record the caller's own JWT can already see (RLS still applies) — the client can only say *which* existing record to notify about, never supply arbitrary recipient addresses or message content
 - **Forced password change** — any employee created by an admin (single-add or bulk-add, random or shared password) has `must_change_password = true` and cannot use the app until they set their own password. A bare `id = auth.uid()` self-update RLS policy on `employees` would let an employee push a change to *any* column on their own row (including `role`); a trigger restricts a non-admin self-update to only `phone`, `address`, and `must_change_password`
+- **Offboarding** — Deactivate actually bans the employee's Supabase Auth account via `offboard-employee` (service_role only — not something client code can trigger directly), not just `employees.is_active`, which nothing at the Auth layer ever checked. Note this doesn't kill an already-issued access token instantly — it blocks new sign-ins/refreshes, and the app force-signs-out a deactivated employee the next time their record loads, but a token already in hand keeps working until it expires (default 1 hour)

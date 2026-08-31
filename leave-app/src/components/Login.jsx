@@ -29,7 +29,7 @@ function LoginCard({ children }) {
 }
 
 // ── Sign In ────────────────────────────────────────────────────────────────────
-function SignInForm({ onForgot }) {
+function SignInForm({ onForgot, blockedMessage }) {
   const [form, setForm]     = useState({ email: '', password: '' })
   const [error, setError]   = useState('')
   const [loading, setLoading] = useState(false)
@@ -48,6 +48,11 @@ function SignInForm({ onForgot }) {
       <div style={{ fontSize: 14, color: C.textSec, textAlign: 'center', marginBottom: 24 }}>
         Sign in to your account
       </div>
+      {blockedMessage && (
+        <div style={{ background: C.redBg, color: C.red, fontSize: 13, padding: '9px 12px', borderRadius: 8, marginBottom: 14 }}>
+          {blockedMessage}
+        </div>
+      )}
       <form onSubmit={submit}>
         <Field label="Work Email">
           <input
@@ -302,9 +307,9 @@ function ForgotPassword({ onBack }) {
 }
 
 // ── Root export ────────────────────────────────────────────────────────────────
-export default function Login() {
+export default function Login({ blockedMessage }) {
   const [showForgot, setShowForgot] = useState(false)
 
   if (showForgot) return <ForgotPassword onBack={() => setShowForgot(false)} />
-  return <SignInForm onForgot={() => setShowForgot(true)} />
+  return <SignInForm onForgot={() => setShowForgot(true)} blockedMessage={blockedMessage} />
 }

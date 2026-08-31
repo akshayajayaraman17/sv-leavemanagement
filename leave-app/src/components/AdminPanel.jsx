@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  fetchEmployees, createEmployee, updateEmployee, deactivateEmployee,
+  fetchEmployees, createEmployee, updateEmployee, deactivateEmployee, reactivateEmployee,
   fetchSalary, upsertSalary, fetchApprovers, setApprovers,
   fetchLeaveTypes, fetchLeaveAdjustments, upsertLeaveAdjustment, grantCompOff,
   fetchLeaveBalance, fetchHolidays, createHoliday, deleteHoliday, fetchAuditLog,
@@ -10,7 +10,7 @@ import { rowsToCsv, downloadCsv, parseCsv } from '../lib/csv'
 import { printPayslip } from '../lib/payslip'
 import { generateEmpCode } from '../lib/employeeCode'
 import BulkAddEmployees from './BulkAddEmployees'
-import { Avatar, C, Confirm, Empty, Field, SecTitle, Spinner, btnStyle, card, inputStyle, formatDate } from './UI'
+import { Avatar, C, Confirm, Empty, Field, OffboardModal, SecTitle, Spinner, btnStyle, card, inputStyle, formatDate } from './UI'
 
 const ROLES = { admin: 'Admin', manager: 'Manager', employee: 'Employee' }
 const DEPTS = ['Engineering', 'HR', 'Finance', 'Sales', 'Operations', 'Marketing', 'Design', 'Product']
@@ -234,7 +234,7 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
               label="Employee Code" error={errs.employee_code}
               hint={isEdit ? 'Read-only after creation — kept stable for approvals, timesheets, and payroll references.' : undefined}
             >
-              <input value={form.employee_code} onChange={e => setForm(f => ({ ...f, employee_code: e.target.value }))} style={{ ...inputStyle(errs.employee_code), background: !isEdit ? C.bgSec : undefined }} placeholder="EMP001" readOnly={!isEdit} />
+              <input value={form.employee_code} onChange={e => setForm(f => ({ ...f, employee_code: e.target.value }))} style={{ ...inputStyle(errs.employee_code), background: !isEdit ? C.bgSec : undefined }} placeholder="EMP-001" readOnly={!isEdit} />
             </Field>
           </div>
           <Field label="Work Email" error={errs.email}>
@@ -377,7 +377,7 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                   <div style={{ width: 10, height: 10, borderRadius: '50%', background: lt.color, flexShrink: 0 }} />
                   <div style={{ fontSize: 13, fontWeight: 500 }}>{lt.label}</div>
-                  <div style={{ fontSize: 11, color: C.textTert, marginLeft: 'auto' }}>Current: {currentTotal} days · Base {lt.annual_days}/yr</div>
+                  <div style={{ fontSize: 11, color: C.textTert, marginLeft: 'auto' }}>Current: {currentTotal} days</div>
                 </div>
                 <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                   <Field label="Adjustment (days)">
@@ -809,6 +809,8 @@ function ExportPanel({ employees, onToast }) {
       { key: 'role',          label: 'Role' },
       { key: 'joining_date',  label: 'Joining Date' },
       { key: 'is_active',     label: 'Active' },
+      { key: 'exit_date',     label: 'Exit Date' },
+      { key: 'exit_reason',   label: 'Exit Reason' },
     ]))
     setExporting(null)
     onToast('Employees exported')
@@ -903,7 +905,9 @@ export default function AdminPanel({ onToast }) {
   }
   useEffect(load, [])
 
-  const handleDeactivate = async (id) => {
+  const [offboarding, setOffboarding] = useState(false)
+
+  const handleDeactivate = async (id, { exitDate, exitReason }) => {
     const target = employees.find(e => e.id === id)
     if (target?.role === 'admin') {
       const otherActiveAdmins = employees.filter(e => e.role === 'admin' && e.is_active !== false && e.id !== id).length
@@ -913,16 +917,18 @@ export default function AdminPanel({ onToast }) {
         return
       }
     }
-    const { error } = await deactivateEmployee(id)
-    if (error) { onToast(error.message, 'error'); return }
+    setOffboarding(true)
+    const { error } = await deactivateEmployee(id, { exitDate, exitReason })
+    setOffboarding(false)
+    if (error) { onToast(typeof error === 'string' ? error : error.message, 'error'); return }
     onToast('Employee deactivated')
     setConfirm(null)
     load()
   }
 
   const handleReactivate = async (id) => {
-    const { error } = await updateEmployee(id, { is_active: true })
-    if (error) { onToast(error.message, 'error'); return }
+    const { error } = await reactivateEmployee(id)
+    if (error) { onToast(typeof error === 'string' ? error : error.message, 'error'); return }
     onToast('Employee reactivated')
     load()
   }
@@ -1005,10 +1011,11 @@ export default function AdminPanel({ onToast }) {
       {sectionTabs}
 
       {confirm && (
-        <Confirm
-          msg={`Deactivate ${confirm.full_name}? They will lose access immediately.`}
-          onYes={() => handleDeactivate(confirm.id)}
-          onNo={() => setConfirm(null)}
+        <OffboardModal
+          name={confirm.full_name}
+          submitting={offboarding}
+          onConfirm={(details) => handleDeactivate(confirm.id, details)}
+          onCancel={() => setConfirm(null)}
         />
       )}
 
@@ -1043,6 +1050,9 @@ export default function AdminPanel({ onToast }) {
                           <div style={{ fontSize: 14, fontWeight: 500 }}>{e.full_name}</div>
                           <div style={{ fontSize: 11, color: C.textSec }}>{e.employee_code} · {e.designation || ROLES[e.role]} · {e.department || '—'}</div>
                           <div style={{ fontSize: 11, color: C.textTert }}>Manager: {mgr?.full_name || '—'} · Joined {formatDate(e.joining_date)}</div>
+                          {!e.is_active && e.exit_date && (
+                            <div style={{ fontSize: 11, color: C.textTert }}>Left {formatDate(e.exit_date)}{e.exit_reason ? ` · ${e.exit_reason}` : ''}</div>
+                          )}
                         </div>
                         <span style={{ background: e.is_active ? C.greenBg : C.bgTert, color: e.is_active ? '#0F6E56' : C.textSec, fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 10, flexShrink: 0 }}>
                           {e.is_active ? 'Active' : 'Inactive'}
@@ -1082,6 +1092,9 @@ export default function AdminPanel({ onToast }) {
                     <span style={{ background: e.is_active ? C.greenBg : C.bgTert, color: e.is_active ? '#0F6E56' : C.textSec, fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 10 }}>
                       {e.is_active ? 'Active' : 'Inactive'}
                     </span>
+                    {!e.is_active && e.exit_date && (
+                      <div style={{ fontSize: 10, color: C.textTert, marginTop: 3 }}>Left {formatDate(e.exit_date)}</div>
+                    )}
                   </td>
                   <td>
                     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>

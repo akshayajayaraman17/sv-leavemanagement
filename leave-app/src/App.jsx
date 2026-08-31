@@ -73,7 +73,7 @@ const TITLES = {
 }
 
 export default function App() {
-  const { employee, loading } = useAuth()
+  const { employee, loading, blockedMessage } = useAuth()
   const [tab,   setTab]   = useState('dash')
   const [toast, setToast] = useState(null)
   const [hasUnread, setHasUnread] = useState(false)
@@ -111,7 +111,7 @@ export default function App() {
     </div>
   )
 
-  if (!employee) return <Login />
+  if (!employee) return <Login blockedMessage={blockedMessage} />
 
   if (employee.must_change_password) return <ForcePasswordChange employee={employee} />
 

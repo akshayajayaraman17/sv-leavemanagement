@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import {
   fetchEmployees, fetchLeaveBalance, fetchMyLeaves, updateEmployee,
+  deactivateEmployee, reactivateEmployee,
   fetchTimesheetHistory, fetchTimesheetEntries, fetchSalary,
   fetchAttendanceHistory, getMedicalCertificateUrl,
 } from '../lib/api'
-import { Avatar, Badge, C, Empty, Field, SecTitle, Spinner, card, formatDate, inputStyle, btnStyle } from './UI'
+import { Avatar, Badge, C, Empty, Field, OffboardModal, SecTitle, Spinner, card, formatDate, inputStyle, btnStyle } from './UI'
 
 const ROLES = { admin: 'Admin', manager: 'Manager', employee: 'Employee' }
 
@@ -47,6 +48,8 @@ function EmployeeDetail({ emp: empProp, viewerRole, allEmployees, onBack, onToas
   const [editing,    setEditing]   = useState(false)
   const [form,       setForm]      = useState(null)
   const [saving,     setSaving]    = useState(false)
+  const [offering,   setOffering]  = useState(false)   // offboard modal open
+  const [offboarding,setOffboarding]=useState(false)   // offboard request in flight
 
   const isAdmin = viewerRole === 'admin'
 
@@ -59,7 +62,6 @@ function EmployeeDetail({ emp: empProp, viewerRole, allEmployees, onBack, onToas
       role:          emp.role,
       manager_id:    emp.manager_id    || '',
       joining_date:  emp.joining_date  || '',
-      is_active:     emp.is_active,
     })
     setEditing(true)
   }
@@ -73,10 +75,6 @@ function EmployeeDetail({ emp: empProp, viewerRole, allEmployees, onBack, onToas
       onToast?.('Cannot change role — at least one active admin must remain', 'error')
       return
     }
-    if (emp.role === 'admin' && form.role === 'admin' && form.is_active === false && activeOtherAdmins === 0) {
-      onToast?.('Cannot deactivate — at least one active admin must remain', 'error')
-      return
-    }
 
     setSaving(true)
     const updates = {
@@ -87,7 +85,6 @@ function EmployeeDetail({ emp: empProp, viewerRole, allEmployees, onBack, onToas
       role:          form.role,
       manager_id:    form.manager_id || null,
       joining_date:  form.joining_date,
-      is_active:     form.is_active,
     }
     const { error } = await updateEmployee(emp.id, updates)
     setSaving(false)
@@ -96,6 +93,29 @@ function EmployeeDetail({ emp: empProp, viewerRole, allEmployees, onBack, onToas
     setEmp(e => ({ ...e, ...updates }))
     setEditing(false)
     onToast?.('Employee updated')
+  }
+
+  const handleDeactivate = async ({ exitDate, exitReason }) => {
+    const activeOtherAdmins = allEmployees.filter(e => e.role === 'admin' && e.is_active !== false && e.id !== emp.id).length
+    if (emp.role === 'admin' && activeOtherAdmins === 0) {
+      onToast?.('Cannot deactivate — at least one active admin must remain', 'error')
+      setOffering(false)
+      return
+    }
+    setOffboarding(true)
+    const { data, error } = await deactivateEmployee(emp.id, { exitDate, exitReason })
+    setOffboarding(false)
+    if (error) { onToast?.(typeof error === 'string' ? error : error.message, 'error'); return }
+    setEmp(e => ({ ...e, ...data }))
+    setOffering(false)
+    onToast?.('Employee deactivated')
+  }
+
+  const handleReactivate = async () => {
+    const { data, error } = await reactivateEmployee(emp.id)
+    if (error) { onToast?.(typeof error === 'string' ? error : error.message, 'error'); return }
+    setEmp(e => ({ ...e, ...data }))
+    onToast?.('Employee reactivated')
   }
 
   useEffect(() => {
@@ -130,6 +150,15 @@ function EmployeeDetail({ emp: empProp, viewerRole, allEmployees, onBack, onToas
 
   return (
     <div>
+      {offering && (
+        <OffboardModal
+          name={emp.full_name}
+          submitting={offboarding}
+          onConfirm={handleDeactivate}
+          onCancel={() => setOffering(false)}
+        />
+      )}
+
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
         <button onClick={onBack} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '6px 12px', fontSize: 12 }}>‹ Back</button>
@@ -158,9 +187,14 @@ function EmployeeDetail({ emp: empProp, viewerRole, allEmployees, onBack, onToas
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <SecTitle>Personal Info</SecTitle>
                 {isAdmin && !editing && (
-                  <button onClick={startEdit} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '5px 12px', fontSize: 12 }}>
-                    Edit
-                  </button>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={startEdit} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '5px 12px', fontSize: 12 }}>
+                      Edit
+                    </button>
+                    {emp.is_active
+                      ? <button onClick={() => setOffering(true)} style={{ ...btnStyle(C.redBg, C.red), padding: '5px 12px', fontSize: 12 }}>Deactivate</button>
+                      : <button onClick={handleReactivate} style={{ ...btnStyle(C.greenBg, '#0F6E56'), padding: '5px 12px', fontSize: 12 }}>Reactivate</button>}
+                  </div>
                 )}
               </div>
 
@@ -176,6 +210,8 @@ function EmployeeDetail({ emp: empProp, viewerRole, allEmployees, onBack, onToas
                   ['Reporting Manager', manager?.full_name || '—'],
                   ['Date of Joining',   formatDate(emp.joining_date)],
                   ['Status',        emp.is_active ? 'Active' : 'Inactive'],
+                  ...(!emp.is_active && emp.exit_date ? [['Last Working Day', formatDate(emp.exit_date)]] : []),
+                  ...(!emp.is_active && emp.exit_reason ? [['Exit Reason', emp.exit_reason]] : []),
                 ].map(([label, value]) => (
                   <div key={label} style={{
                     display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
@@ -217,12 +253,6 @@ function EmployeeDetail({ emp: empProp, viewerRole, allEmployees, onBack, onToas
                       {allEmployees.filter(e => e.id !== emp.id && e.role !== 'employee').map(e => (
                         <option key={e.id} value={e.id}>{e.full_name} ({ROLES[e.role]})</option>
                       ))}
-                    </select>
-                  </Field>
-                  <Field label="Status">
-                    <select value={form.is_active ? 'active' : 'inactive'} onChange={e => setForm(f => ({ ...f, is_active: e.target.value === 'active' }))} style={inputStyle()}>
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
                     </select>
                   </Field>
                   <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>

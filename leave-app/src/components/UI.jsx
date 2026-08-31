@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 // ─── Design tokens ────────────────────────────────────────────────────────────
 export const C = {
   bg:        '#ffffff',
@@ -166,6 +168,57 @@ export function Confirm({ msg, onYes, onNo }) {
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={onYes} style={{ ...btnStyle(C.red, '#fff'), flex: 1 }}>Yes, proceed</button>
           <button onClick={onNo}  style={{ ...btnStyle(C.bgSec, C.textSec, `0.5px solid ${C.border}`), flex: 1 }}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Offboard modal ────────────────────────────────────────────────────────────
+// Deactivating someone now also bans their Supabase Auth account (see
+// offboard-employee Edge Function) — collects the last-working-day +
+// reason record-keeping details alongside that.
+const EXIT_REASONS = ['Resignation', 'Termination', 'Layoff', 'End of contract', 'Other']
+
+export function OffboardModal({ name, onConfirm, onCancel, submitting }) {
+  const [exitDate, setExitDate]     = useState(new Date().toISOString().split('T')[0])
+  const [reasonKind, setReasonKind] = useState('Resignation')
+  const [otherReason, setOtherReason] = useState('')
+  const reason = reasonKind === 'Other' ? otherReason.trim() : reasonKind
+  const canSubmit = !submitting && (reasonKind !== 'Other' || otherReason.trim())
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+    }}>
+      <div style={{ ...card, maxWidth: 360, width: '90%' }}>
+        <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 8 }}>Deactivate {name}?</div>
+        <div style={{ fontSize: 13, color: C.textSec, marginBottom: 16 }}>
+          They will lose access immediately and be skipped as an approver. This can be reversed with Reactivate.
+        </div>
+        <Field label="Last Working Day">
+          <input type="date" value={exitDate} onChange={e => setExitDate(e.target.value)} style={inputStyle()} />
+        </Field>
+        <Field label="Reason">
+          <select value={reasonKind} onChange={e => setReasonKind(e.target.value)} style={inputStyle()}>
+            {EXIT_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </Field>
+        {reasonKind === 'Other' && (
+          <Field label="Specify reason">
+            <input value={otherReason} onChange={e => setOtherReason(e.target.value)} style={inputStyle()} placeholder="Reason for leaving" />
+          </Field>
+        )}
+        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+          <button onClick={onCancel} disabled={submitting} style={{ ...btnStyle(C.bgSec, C.textSec, `0.5px solid ${C.border}`), flex: 1 }}>Cancel</button>
+          <button
+            onClick={() => onConfirm({ exitDate, exitReason: reason || null })}
+            disabled={!canSubmit}
+            style={{ ...btnStyle(C.red, '#fff'), flex: 1, opacity: canSubmit ? 1 : 0.7 }}
+          >
+            {submitting ? 'Deactivating…' : 'Deactivate'}
+          </button>
         </div>
       </div>
     </div>
