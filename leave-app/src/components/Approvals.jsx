@@ -4,9 +4,9 @@ import {
   decideLeave, decideCompOff,
   fetchPendingTimesheets, decideTimesheet, fetchTimesheetEntries,
   fetchPendingRegularizations, decideRegularization, updateAttendanceStatus,
-  getMedicalCertificateUrl,
+  finalizeSelfReportedAttendance, getMedicalCertificateUrl,
 } from '../lib/api'
-import { Avatar, Btn, C, Empty, Mono, Spinner, Tabs, card, formatDate, inputStyle } from './UI'
+import { Avatar, Btn, C, Empty, Mono, Spinner, Tabs, card, formatDate, inputStyle, isSelfReported, stripSelfReported } from './UI'
 
 export default function Approvals({ employee, onToast }) {
   const [tab, setTab]             = useState('leaves')
@@ -49,7 +49,14 @@ export default function Approvals({ employee, onToast }) {
     const reasonFor = (id) => (bulkRejectItems[id]?.trim() || sharedReason)
 
     const results = await Promise.all(ids.map(async (id) => {
-      if (tab === 'comp')       return { id, ...(await decideCompOff(id, status)) }
+      if (tab === 'comp') {
+        const res = await decideCompOff(id, status)
+        if (!res.error && status === 'approved') {
+          const c = comps.find(x => x.id === id)
+          if (c && isSelfReported(c.reason)) await finalizeSelfReportedAttendance(c.employee_id, c.worked_date)
+        }
+        return { id, ...res }
+      }
       if (tab === 'leaves')     return { id, ...(await decideLeave(id, status)) }
       if (tab === 'timesheets') return { id, ...(await decideTimesheet(id, status, status === 'rejected' ? reasonFor(id) : null)) }
       const res = await decideRegularization(id, status, status === 'rejected' ? reasonFor(id) : null)
@@ -104,12 +111,15 @@ export default function Approvals({ employee, onToast }) {
     if (error) { onToast(error.message, 'error'); return }
     onToast(`Leave ${status}`); setLeaves(p => p.filter(l => l.id !== id))
   }
-  const handleComp = async (id, status) => {
-    setDeciding(id)
-    const { error } = await decideCompOff(id, status)
+  const handleComp = async (c, status) => {
+    setDeciding(c.id)
+    const { error } = await decideCompOff(c.id, status)
+    if (!error && status === 'approved' && isSelfReported(c.reason)) {
+      await finalizeSelfReportedAttendance(c.employee_id, c.worked_date)
+    }
     setDeciding(null)
     if (error) { onToast(error.message, 'error'); return }
-    onToast(`Comp off ${status}`); setComps(p => p.filter(c => c.id !== id))
+    onToast(`Comp off ${status}`); setComps(p => p.filter(x => x.id !== c.id))
   }
   const handleTimesheet = async (id, status) => {
     if (status === 'rejected' && !rejectReason.trim()) { setRejectId(id); return }
@@ -232,10 +242,13 @@ export default function Approvals({ employee, onToast }) {
         id: c.id, initials: c.employee?.avatar_initials, avBg: C.purpleBg, avFg: C.purple,
         who: c.employee?.full_name, code: c.employee?.employee_code || c.employee?.department,
         what: `Comp off · worked ${formatDate(c.worked_date)}`,
-        reason: c.reason,
+        reason: stripSelfReported(c.reason),
         after: <>Earns <Mono>{c.earned_days}</Mono> day</>,
-        flag: <><Mono>{c.worked_hours}h</Mono> logged</>, flagFg: '#3a76ad',
-        onApprove: () => handleComp(c.id, 'approved'), onReject: () => handleComp(c.id, 'rejected'),
+        flag: isSelfReported(c.reason)
+          ? <>⚠ Self-reported · <Mono>{c.worked_hours}h</Mono></>
+          : <><Mono>{c.worked_hours}h</Mono> logged</>,
+        flagFg: isSelfReported(c.reason) ? '#c2882a' : '#3a76ad',
+        onApprove: () => handleComp(c, 'approved'), onReject: () => handleComp(c, 'rejected'),
       }))))}
 
       {tab === 'regs' && (regs.length === 0 ? <Empty text="No pending regularization requests" /> : listCard(regs.map(r => row({

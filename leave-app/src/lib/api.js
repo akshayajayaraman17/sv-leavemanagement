@@ -453,6 +453,23 @@ export const decideRegularization = async (id, status, rejectReason = null) => {
   return { data, error }
 }
 
+// Finalize the placeholder attendance row a self-reported comp-off claim
+// created. The row is written status='incomplete' (so it stays out of the
+// eligible-days list and weekly totals) and flipped to 'present' only when
+// the approver approves the comp off. Scoped to status='incomplete' so it
+// can never downgrade a real, punched attendance record. Approver has the
+// manager update grant on attendance.
+export const finalizeSelfReportedAttendance = async (employeeId, date) => {
+  const { data, error } = await supabase
+    .from('attendance')
+    .update({ status: 'present' })
+    .eq('employee_id', employeeId)
+    .eq('date', date)
+    .eq('status', 'incomplete')
+    .select()
+  return { data, error }
+}
+
 export const updateAttendanceStatus = async (id, status) => {
   const { data, error } = await supabase
     .from('attendance')

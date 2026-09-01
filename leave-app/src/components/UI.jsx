@@ -61,6 +61,15 @@ export const card = {
   boxSizing: 'border-box',
 }
 
+// Marker prepended to a comp-off request's reason when the employee logged the
+// worked day by hand (no GPS punches) rather than checking in on the day. The
+// approver's decision is the only verification for these, so it's surfaced in
+// the Approvals list. Stripped before the reason is shown to anyone.
+export const SELF_REPORTED_TAG = '[self-reported]'
+export const isSelfReported = (reason) => (reason || '').startsWith(SELF_REPORTED_TAG)
+export const stripSelfReported = (reason) =>
+  isSelfReported(reason) ? reason.slice(SELF_REPORTED_TAG.length).trim() : (reason || '')
+
 export const inputStyle = (err) => ({
   width: '100%',
   boxSizing: 'border-box',

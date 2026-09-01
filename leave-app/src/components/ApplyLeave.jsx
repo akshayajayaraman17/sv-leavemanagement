@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   fetchLeaveBalance, fetchEmployees, applyLeave, applyCompOff, getApproverForEmployee,
   uploadMedicalCertificate, fetchMyCompRequests, fetchHolidays, fetchAttendanceHistory,
+  fetchAttendanceForDate, checkIn,
 } from '../lib/api'
 import { workingDays } from '../lib/leaveDays'
-import { Btn, C, Field, Mono, Segmented, Spinner, card, formatDate, inputStyle } from './UI'
+import { Btn, C, Field, Mono, Segmented, Spinner, SELF_REPORTED_TAG, card, formatDate, inputStyle } from './UI'
 
 const today = new Date().toISOString().split('T')[0]
 
@@ -316,6 +317,10 @@ export function ApplyCompOff({ employee, onToast }) {
   const [loading, setLoading]       = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [done, setDone]             = useState(false)
+  const [manualDates, setManualDates]     = useState([])
+  const [manualOpen, setManualOpen]       = useState(false)
+  const [manual, setManual]               = useState({ date: '', inT: '', outT: '', reason: '' })
+  const [manualSubmitting, setManualSubmitting] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -356,6 +361,22 @@ export function ApplyCompOff({ employee, onToast }) {
       setCandidates(rows)
       const firstOk = rows.find(r => r.eligible)
       if (firstOk) setSelected(firstOk.date)
+
+      // Past weekend/holiday days with no attendance row at all and no live
+      // comp request — these can be claimed by hand (approver-verified).
+      const attDates = new Set((att.data || []).map(r => r.date))
+      const reqDates = new Set(reqs.filter(x => x.status !== 'rejected').map(x => x.worked_date))
+      const md = []
+      for (let i = 1; i <= 120; i++) {
+        const d = new Date(); d.setDate(d.getDate() - i)
+        const ds = isoOf(d)
+        const dow = d.getDay()
+        const isHoliday = ds in holNames
+        if (dow !== 0 && dow !== 6 && !isHoliday) continue
+        if (attDates.has(ds) || reqDates.has(ds)) continue
+        md.push({ date: ds, kind: isHoliday ? holNames[ds] : dow === 0 ? 'Sunday' : 'Saturday' })
+      }
+      setManualDates(md)
     }).finally(() => setLoading(false))
   }, [employee.id])
 
@@ -378,11 +399,55 @@ export function ApplyCompOff({ employee, onToast }) {
     setDone(true)
   }
 
+  const submitManual = async () => {
+    const e = {}
+    if (!manual.date) e.mdate = 'Pick a day'
+    if (!manual.inT) e.min = 'Required'
+    if (!manual.outT) e.mout = 'Required'
+    if (!manual.reason.trim()) e.mreason = 'Required'
+    let hrs = 0
+    if (manual.date && manual.inT && manual.outT) {
+      hrs = Math.round(((new Date(`${manual.date}T${manual.outT}:00`) - new Date(`${manual.date}T${manual.inT}:00`)) / 3600000) * 100) / 100
+      if (hrs <= 0) e.mout = 'Must be after check-in'
+      else if (hrs < 8) e.mout = `Only ${hrs.toFixed(1)}h — comp off needs 8h+`
+    }
+    if (Object.keys(e).length) { setErrs(e); return }
+    setManualSubmitting(true)
+
+    // Never overwrite a real, completed attendance record.
+    const { data: existing } = await fetchAttendanceForDate(employee.id, manual.date)
+    if (existing?.check_out_time) {
+      setManualSubmitting(false)
+      onToast('That day already has an attendance record — pick it from the list above.', 'error')
+      return
+    }
+
+    const { error: attErr } = await checkIn({
+      employee_id: employee.id, date: manual.date,
+      check_in_time: new Date(`${manual.date}T${manual.inT}:00`).toISOString(),
+      check_out_time: new Date(`${manual.date}T${manual.outT}:00`).toISOString(),
+      check_in_lat: null, check_in_lng: null, check_in_address: 'Self-reported — no GPS punch',
+      check_out_lat: null, check_out_lng: null, check_out_address: null,
+      total_hours: hrs, status: 'incomplete',
+    })
+    if (attErr) { setManualSubmitting(false); onToast(attErr.message || 'Could not save the day', 'error'); return }
+
+    const { error } = await applyCompOff({
+      employee_id: employee.id, worked_date: manual.date,
+      worked_hours: hrs, earned_days: 1,
+      reason: `${SELF_REPORTED_TAG} ${manual.reason.trim()}`,
+      approver_id: approver?.id || null,
+    })
+    setManualSubmitting(false)
+    if (error) { onToast(error.message || (typeof error === 'string' ? error : 'Failed to submit'), 'error'); return }
+    setDone(true)
+  }
+
   if (loading) return <Spinner />
   if (done) return <Done tone={C.purple} title="Comp off request submitted"
     sub={`Pending approval from ${approver?.full_name || 'your approver'}.`}
     againLabel="Submit another"
-    onAgain={() => { setDone(false); setSelected(''); setReason(''); setErrs({}) }} />
+    onAgain={() => { setDone(false); setSelected(''); setReason(''); setErrs({}); setManualOpen(false); setManual({ date: '', inT: '', outT: '', reason: '' }) }} />
 
   return (
     <div className="split-narrow" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, alignItems: 'start' }}>
@@ -427,6 +492,48 @@ export function ApplyCompOff({ employee, onToast }) {
           placeholder="One or two lines your manager can approve against"
           style={{ ...inputStyle(errs.reason), resize: 'vertical', minHeight: 96 }} />
         {errs.reason && <div style={{ fontSize: 11.5, color: '#c9564a', marginTop: 6 }}>{errs.reason}</div>}
+
+        <div style={{ marginTop: 22, borderTop: `1px solid ${C.lineSoft}`, paddingTop: 18 }}>
+          {!manualOpen ? (
+            <button onClick={() => { setManualOpen(true); setErrs({}) }}
+              style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 12.5, fontWeight: 500, color: C.navy, fontFamily: 'inherit' }}>
+              ＋ Worked a weekend or holiday that isn't listed?
+            </button>
+          ) : (
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Log a day you worked</div>
+              <div style={{ fontSize: 11.5, color: C.sub, lineHeight: 1.55, marginBottom: 14 }}>
+                For a weekend or holiday you worked but didn't check in on. Your approver verifies it before any comp off is credited.
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <Field label="Day worked" error={errs.mdate} style={{ gridColumn: '1 / -1' }}>
+                  <select value={manual.date} onChange={e => { setManual(m => ({ ...m, date: e.target.value })); setErrs({}) }} style={inputStyle(errs.mdate)}>
+                    <option value="">Select a day…</option>
+                    {manualDates.map(d => <option key={d.date} value={d.date}>{fmtPill(d.date)} · {d.kind}</option>)}
+                  </select>
+                </Field>
+                <Field label="Check-in" error={errs.min}>
+                  <input type="time" value={manual.inT} onChange={e => setManual(m => ({ ...m, inT: e.target.value }))} style={inputStyle(errs.min)} />
+                </Field>
+                <Field label="Check-out" error={errs.mout}>
+                  <input type="time" value={manual.outT} onChange={e => setManual(m => ({ ...m, outT: e.target.value }))} style={inputStyle(errs.mout)} />
+                </Field>
+              </div>
+              <Field label="What did you work on?" error={errs.mreason}>
+                <textarea rows={2} value={manual.reason} onChange={e => setManual(m => ({ ...m, reason: e.target.value }))}
+                  placeholder="Context your approver can verify against"
+                  style={{ ...inputStyle(errs.mreason), resize: 'vertical', minHeight: 64 }} />
+              </Field>
+              {manualDates.length === 0 && (
+                <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6 }}>No un-logged weekend or holiday days in the last few months.</div>
+              )}
+              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <Btn disabled={manualSubmitting} onClick={submitManual}>{manualSubmitting ? 'Submitting…' : 'Submit for approval'}</Btn>
+                <Btn variant="ghost" onClick={() => { setManualOpen(false); setErrs({}) }}>Cancel</Btn>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       <div style={{ ...card, padding: 22, position: 'sticky', top: 24 }}>
