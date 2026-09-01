@@ -11,8 +11,9 @@ function getMondayOf(offset = 0) {
   const d = new Date()
   const day = d.getDay()
   d.setDate(d.getDate() - (day === 0 ? 6 : day - 1) + offset * 7)
-  d.setHours(0, 0, 0, 0)
-  return d.toISOString().split('T')[0]
+  // Format from local date parts — toISOString() would shift to the previous
+  // day for any timezone ahead of UTC (e.g. IST), landing us on Sunday.
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 function getWeekDays(weekStart) {
   return Array.from({ length: 5 }, (_, i) => { const d = new Date(weekStart + 'T12:00:00'); d.setDate(d.getDate() + i); return d.toISOString().split('T')[0] })
