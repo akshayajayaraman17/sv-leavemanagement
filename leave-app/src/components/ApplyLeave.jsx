@@ -6,8 +6,9 @@ import {
 } from '../lib/api'
 import { workingDays } from '../lib/leaveDays'
 import { Btn, C, Field, Mono, Segmented, Spinner, SELF_REPORTED_TAG, card, formatDate, inputStyle } from './UI'
+import { todayStr } from '../lib/dates'
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayStr()
 
 // ── Inline range calendar (Apply for leave) ───────────────────────────────────
 const CAL_DOWS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']

@@ -3,6 +3,7 @@ import { fetchEmployees, updateProfile } from '../lib/api'
 import { supabase } from '../lib/supabase'
 import { passwordError, PASSWORD_HINT } from '../lib/password'
 import { Avatar, Btn, C, Field, KV, Panel, ProgressBar, SecTitle, card, formatDate, inputStyle } from './UI'
+import { todayStr } from '../lib/dates'
 
 const ROLE = { admin: 'Admin', manager: 'Manager', employee: 'Employee' }
 
@@ -12,7 +13,7 @@ export default function Profile({ employee, onToast }) {
   })
   const [saving, setSaving] = useState(false)
   const [manager, setManager] = useState(null)
-  const today = new Date().toISOString().split('T')[0]
+  const today = todayStr()
 
   useEffect(() => {
     if (!employee.manager_id) return

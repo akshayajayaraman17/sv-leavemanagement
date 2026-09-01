@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { todayStr } from './dates'
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 export const signIn = (email, password) =>
@@ -332,7 +333,7 @@ export const getApproverForEmployee = async (employeeId) => {
 
 // ─── Attendance ───────────────────────────────────────────────────────────────
 export const fetchTodayAttendance = async (employeeId) => {
-  const today = new Date().toISOString().split('T')[0]
+  const today = todayStr()
   const { data, error } = await supabase
     .from('attendance')
     .select('*')

@@ -6,6 +6,7 @@ import {
   updateAttendanceStatus, getApproverForEmployee,
 } from '../lib/api'
 import { Badge, Btn, C, Field, Mono, Panel, SecTitle, Spinner, card, formatDate, inputStyle } from './UI'
+import { toDateStr, todayStr as todayStrFn } from '../lib/dates'
 
 const MIN_HOURS = 8
 
@@ -35,7 +36,7 @@ function getWeekDays() {
   const day = t.getDay()
   const monday = new Date(t)
   monday.setDate(t.getDate() - (day === 0 ? 6 : day - 1))
-  return Array.from({ length: 5 }, (_, i) => { const d = new Date(monday); d.setDate(monday.getDate() + i); return d.toISOString().split('T')[0] })
+  return Array.from({ length: 5 }, (_, i) => { const d = new Date(monday); d.setDate(monday.getDate() + i); return toDateStr(d) })
 }
 const formatTime = ts => ts ? new Date(ts).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '—'
 const DAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
@@ -66,7 +67,7 @@ export default function Attendance({ employee, onToast }) {
   const [manualNotes, setManualNotes]       = useState('')
 
   const weekDays = getWeekDays()
-  const todayStr = new Date().toISOString().split('T')[0]
+  const todayStr = todayStrFn()
 
   const load = async () => {
     setLoading(true)

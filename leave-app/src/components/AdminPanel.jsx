@@ -11,6 +11,7 @@ import { workingDays } from '../lib/leaveDays'
 import { rowsToCsv, downloadCsv, parseCsv } from '../lib/csv'
 import { printPayslip } from '../lib/payslip'
 import { generateEmpCode } from '../lib/employeeCode'
+import { toDateStr, todayStr } from '../lib/dates'
 import BulkAddEmployees from './BulkAddEmployees'
 import {
   Avatar, Badge, Btn, C, Confirm, Empty, Field, Modal, Mono, OffboardModal, Panel,
@@ -20,7 +21,7 @@ import {
 const ROLES = { admin: 'Admin', manager: 'Manager', employee: 'Employee' }
 const DEPTS = ['Engineering', 'HR', 'Finance', 'Sales', 'Operations', 'Marketing', 'Design', 'Product']
 const REGIONS = ['India', 'United States', 'United Kingdom']
-const today = new Date().toISOString().split('T')[0]
+const today = todayStr()
 
 const noteBox = (tone) => ({
   ...card,
@@ -864,7 +865,7 @@ function HolidaysPanel({ employees, onToast }) {
     for (const h of holidays) {
       const d = new Date(h.holiday_date + 'T12:00:00')
       d.setFullYear(d.getFullYear() + 1)
-      const iso = d.toISOString().split('T')[0]
+      const iso = toDateStr(d)
       const { error } = await createHoliday({ holiday_date: iso, name: h.name, region: h.region })
       if (error) failed++; else created++
     }

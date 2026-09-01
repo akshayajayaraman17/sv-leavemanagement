@@ -4,9 +4,10 @@ import { parseCsv, rowsToCsv, downloadCsv } from '../lib/csv'
 import { generateTempPassword } from '../lib/password'
 import { generateEmpCode } from '../lib/employeeCode'
 import { Btn, C, card, inputStyle } from './UI'
+import { todayStr } from '../lib/dates'
 
 const VALID_ROLES = ['admin', 'manager', 'employee']
-const today = new Date().toISOString().split('T')[0]
+const today = todayStr()
 
 const TEMPLATE_COLUMNS = [
   { key: 'full_name', label: 'full_name' },

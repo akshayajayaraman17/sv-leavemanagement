@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchTeamCalendar, fetchHolidays, fetchLeaveTypes } from '../lib/api'
 import { C, Spinner, card } from './UI'
+import { toDateStr } from '../lib/dates'
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-function toDateStr(d) { return d.toISOString().split('T')[0] }
 
 function buildGrid(year, month) {
   const first = new Date(year, month, 1)

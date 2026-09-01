@@ -6,24 +6,23 @@ import {
   requestLateTimesheetSubmission,
 } from '../lib/api'
 import { Badge, Btn, C, Field, Mono, SecTitle, Spinner, card, formatDate, inputStyle } from './UI'
+import { toDateStr, todayStr } from '../lib/dates'
 
 function getMondayOf(offset = 0) {
   const d = new Date()
   const day = d.getDay()
   d.setDate(d.getDate() - (day === 0 ? 6 : day - 1) + offset * 7)
-  // Format from local date parts — toISOString() would shift to the previous
-  // day for any timezone ahead of UTC (e.g. IST), landing us on Sunday.
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return toDateStr(d)
 }
 function getWeekDays(weekStart) {
-  return Array.from({ length: 5 }, (_, i) => { const d = new Date(weekStart + 'T12:00:00'); d.setDate(d.getDate() + i); return d.toISOString().split('T')[0] })
+  return Array.from({ length: 5 }, (_, i) => { const d = new Date(weekStart + 'T12:00:00'); d.setDate(d.getDate() + i); return toDateStr(d) })
 }
-function getFridayOf(weekStart) { const d = new Date(weekStart + 'T12:00:00'); d.setDate(d.getDate() + 4); return d.toISOString().split('T')[0] }
+function getFridayOf(weekStart) { const d = new Date(weekStart + 'T12:00:00'); d.setDate(d.getDate() + 4); return toDateStr(d) }
 function fmtWeekLabel(ws) { return new Date(ws + 'T12:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) }
 
 const DAY_LABELS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 const DAY_SHORT  = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
-const today = new Date().toISOString().split('T')[0]
+const today = todayStr()
 
 function EntryForm({ date, timesheetId, employeeId, jiraConnected, attHours, dayTsHours, onSave, onCancel }) {
   const [form, setForm] = useState({ jira_issue_key: '', project: '', task_description: '', hours: '1' })

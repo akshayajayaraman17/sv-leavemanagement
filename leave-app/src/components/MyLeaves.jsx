@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { fetchMyLeaves, fetchMyCompRequests, getMedicalCertificateUrl, cancelLeave } from '../lib/api'
 import { Badge, Btn, C, Confirm, Empty, Mono, Spinner, Tabs, card, formatDate, inputStyle } from './UI'
+import { todayStr } from '../lib/dates'
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayStr()
 const isCancellable = l => l.status === 'pending' || (l.status === 'approved' && l.from_date >= today)
 
 export default function MyLeaves({ employee, onToast }) {

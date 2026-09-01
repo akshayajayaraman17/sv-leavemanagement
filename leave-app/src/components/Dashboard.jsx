@@ -6,8 +6,9 @@ import {
   fetchPendingRegularizations, decideLeave,
 } from '../lib/api'
 import { Avatar, C, Panel, Spinner, card, formatDate } from './UI'
+import { todayStr } from '../lib/dates'
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayStr()
 const fmtTime = ts => ts ? new Date(ts).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '—'
 
 const TONE = { annual: '#3a76ad', sick: '#3a76ad', comp: '#c2882a' }

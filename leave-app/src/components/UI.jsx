@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { passwordError, PASSWORD_HINT } from '../lib/password'
+import { todayStr } from '../lib/dates'
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 // Palette rebuilt to the navy / Newsreader / IBM Plex Mono system. The legacy
@@ -393,7 +394,7 @@ export function Confirm({ msg, onYes, onNo, yesLabel = 'Yes, proceed' }) {
 const EXIT_REASONS = ['Resignation', 'Termination', 'Layoff', 'End of contract', 'Other']
 
 export function OffboardModal({ name, onConfirm, onCancel, submitting }) {
-  const [exitDate, setExitDate]       = useState(new Date().toISOString().split('T')[0])
+  const [exitDate, setExitDate]       = useState(todayStr())
   const [reasonKind, setReasonKind]   = useState('Resignation')
   const [otherReason, setOtherReason] = useState('')
   const reason = reasonKind === 'Other' ? otherReason.trim() : reasonKind
