@@ -1,24 +1,66 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   fetchLeaveBalance, fetchEmployees, applyLeave, applyCompOff, getApproverForEmployee,
-  uploadMedicalCertificate, fetchMyCompRequests, fetchHolidays, fetchAttendanceForDate,
+  uploadMedicalCertificate, fetchMyCompRequests, fetchHolidays, fetchAttendanceHistory,
 } from '../lib/api'
 import { workingDays } from '../lib/leaveDays'
-import { Avatar, Btn, C, Field, Mono, Panel, Spinner, card, formatDate, inputStyle } from './UI'
+import { Btn, C, Field, Mono, Spinner, card, formatDate, inputStyle } from './UI'
 
 const today = new Date().toISOString().split('T')[0]
-const fmtTime = ts => ts ? new Date(ts).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '—'
 
-const TYPE_TONE = { annual: '#3a76ad', sick: '#3a76ad', comp: '#c2882a' }
+// ── Inline range calendar (Apply for leave) ───────────────────────────────────
+const CAL_DOWS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const isoOf = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const parseISO = s => new Date(s + 'T12:00:00')
+const fmtPill = s => s ? parseISO(s).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }) : '—'
+const calNav = { width: 24, height: 24, border: `1px solid ${C.line}`, background: '#fff', borderRadius: 6, color: '#78859a', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit' }
+const datePill = { border: '1px solid #d9e6f3', background: '#f4f8fd', borderRadius: 9, padding: '9px 14px', minWidth: 92 }
 
-function ApproverCard({ approver, verb = 'Approver' }) {
-  if (!approver) return null
+function RangeCalendar({ from, to, minDate, single, onPick }) {
+  const init = from ? parseISO(from) : new Date()
+  const [view, setView] = useState(new Date(init.getFullYear(), init.getMonth(), 1))
+  const y = view.getFullYear(), m = view.getMonth()
+  const startDow = (new Date(y, m, 1).getDay() + 6) % 7
+  const gridStart = new Date(y, m, 1 - startDow)
+  const cells = Array.from({ length: 42 }, (_, i) => { const d = new Date(gridStart); d.setDate(gridStart.getDate() + i); return d })
+
   return (
-    <div style={{ ...card, background: C.bgSec, display: 'flex', alignItems: 'center', gap: 10, padding: 14 }}>
-      <Avatar initials={approver.avatar_initials} size={30} bg={C.navyBg} color={C.navy} />
-      <div>
-        <div style={{ fontSize: 10.5, color: C.muted, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{verb}</div>
-        <div style={{ fontSize: 13, fontWeight: 500 }}>{approver.full_name}</div>
+    <div style={{ marginTop: 16, border: '1px solid #eaeff6', borderRadius: 12, padding: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div style={{ fontSize: 13, fontWeight: 500 }}>{view.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button type="button" onClick={() => setView(new Date(y, m - 1, 1))} style={calNav}>‹</button>
+          <button type="button" onClick={() => setView(new Date(y, m + 1, 1))} style={calNav}>›</button>
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,minmax(0,1fr))', gap: 4, marginBottom: 6 }}>
+        {CAL_DOWS.map(d => <div key={d} style={{ textAlign: 'center', fontSize: 9.5, letterSpacing: '0.08em', textTransform: 'uppercase', color: C.faint }}>{d}</div>)}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,minmax(0,1fr))', gap: 4 }}>
+        {cells.map((d, i) => {
+          const ds = isoOf(d)
+          const inMonth = d.getMonth() === m
+          const disabled = !inMonth || (minDate && ds < minDate)
+          const onlyFrom = from && !to && ds === from
+          const inRange = from && to && ds >= from && ds <= to && !single
+          const on = inRange || onlyFrom || (single && ds === from)
+          const radius = !on ? 8
+            : (ds === from && ds === to) || onlyFrom || single ? 8
+              : ds === from ? '8px 0 0 8px'
+                : ds === to ? '0 8px 8px 0' : 0
+          return (
+            <div key={i} onClick={() => !disabled && onPick(ds)}
+              style={{
+                height: 32, borderRadius: radius,
+                background: on ? C.navy : 'transparent',
+                color: !inMonth ? 'transparent' : disabled ? C.faint : on ? '#fff' : C.body,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontFamily: C.mono, fontSize: 12, cursor: disabled ? 'default' : 'pointer',
+              }}>
+              {inMonth ? d.getDate() : ''}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -109,9 +151,19 @@ export function ApplyLeave({ employee, onToast }) {
     againLabel="Apply another"
     onAgain={() => { setDone(false); setForm({ type: 'annual', from: '', to: '', reason: '', half: false }); setCertificate(null); setErrs({}) }} />
 
+  const pickDate = (ds) => {
+    setErrs({})
+    if (form.half) { setForm(f => ({ ...f, from: ds, to: ds })); return }
+    setForm(f => {
+      if (!f.from || (f.from && f.to)) return { ...f, from: ds, to: '' }
+      if (ds < f.from) return { ...f, from: ds, to: '' }
+      return { ...f, to: ds }
+    })
+  }
+
   return (
-    <div className="split-2" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, alignItems: 'start' }}>
-      <div style={{ ...card, padding: 24 }}>
+    <div className="split-narrow" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, alignItems: 'start' }}>
+      <div style={{ ...card, padding: '24px 26px' }}>
         <div style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.muted, marginBottom: 12 }}>Leave type</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 10 }}>
           {balances.map(b => {
@@ -134,25 +186,28 @@ export function ApplyLeave({ employee, onToast }) {
         </div>
 
         <div style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.muted, margin: '24px 0 12px' }}>Dates</div>
-        <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <Field label="From" error={errs.from}>
-            <input type="date" min={today} value={form.from}
-              onChange={e => { const v = e.target.value; setForm(f => ({ ...f, from: v, to: f.half ? v : f.to })) }}
-              style={inputStyle(errs.from)} />
-          </Field>
-          <Field label="To" error={errs.to}>
-            <input type="date" min={form.from || today} value={form.to} disabled={form.half}
-              onChange={e => setForm(f => ({ ...f, to: e.target.value }))} style={inputStyle(errs.to)} />
-          </Field>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={datePill}>
+            <div style={{ fontSize: 10.5, color: '#78859a' }}>From</div>
+            <div style={{ fontSize: 14, fontWeight: 500, marginTop: 2 }}>{fmtPill(form.from)}</div>
+          </div>
+          <span style={{ color: '#b3bdcb' }}>→</span>
+          <div style={datePill}>
+            <div style={{ fontSize: 10.5, color: '#78859a' }}>To</div>
+            <div style={{ fontSize: 14, fontWeight: 500, marginTop: 2 }}>{fmtPill(form.to)}</div>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 7, marginLeft: 6, fontSize: 12.5, color: C.body, cursor: 'pointer' }}>
+            <input type="checkbox" checked={form.half} style={{ width: 13, height: 13, accentColor: C.navy, margin: 0 }}
+              onChange={e => { const c = e.target.checked; setForm(f => ({ ...f, half: c, to: c ? f.from : f.to })) }} />
+            Half day
+          </label>
         </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: C.body, cursor: 'pointer', marginBottom: form.half ? 6 : 4 }}>
-          <input type="checkbox" checked={form.half} style={{ width: 13, height: 13, accentColor: C.navy, margin: 0 }}
-            onChange={e => { const c = e.target.checked; setForm(f => ({ ...f, half: c, to: c ? f.from : f.to })) }} />
-          Half day
-        </label>
-        {form.half && <div style={{ fontSize: 11, color: '#8a6a22', marginBottom: 10 }}>Half-day requests are single-day only — end date matches the start.</div>}
+        {(errs.from || errs.to) && <div style={{ fontSize: 11.5, color: '#c9564a', marginTop: 6 }}>{errs.from || errs.to}</div>}
+        {form.half && <div style={{ fontSize: 11, color: '#8a6a22', marginTop: 6 }}>Half-day requests are single-day only — pick one date below.</div>}
 
-        <Field label="Reason" error={errs.reason} style={{ marginTop: 6 }}>
+        <RangeCalendar from={form.from} to={form.to} minDate={today} single={form.half} onPick={pickDate} />
+
+        <Field label="Reason" error={errs.reason} style={{ marginTop: 20 }}>
           <textarea rows={3} value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
             placeholder="Short context for your approver"
             style={{ ...inputStyle(errs.reason), resize: 'vertical', minHeight: 84 }} />
@@ -238,12 +293,9 @@ export function ApplyLeave({ employee, onToast }) {
 // ── Apply Comp Off ─────────────────────────────────────────────────────────────
 export function ApplyCompOff({ employee, onToast }) {
   const [approver, setApprover]     = useState(null)
-  const [existingReqs, setExisting] = useState([])
-  const [holidays, setHolidays]     = useState(new Set())
-  const [form, setForm]             = useState({ workedDate: '', reason: '' })
-  const [attendance, setAttendance] = useState(null)
-  const [attLoading, setAttLoading] = useState(false)
-  const [checks, setChecks]         = useState([])
+  const [candidates, setCandidates] = useState([])
+  const [selected, setSelected]     = useState('')
+  const [reason, setReason]         = useState('')
   const [errs, setErrs]             = useState({})
   const [loading, setLoading]       = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -253,65 +305,57 @@ export function ApplyCompOff({ employee, onToast }) {
     Promise.all([
       fetchEmployees(), getApproverForEmployee(employee.id),
       fetchMyCompRequests(employee.id), fetchHolidays(),
-    ]).then(([e, a, cr, h]) => {
-      const err = e.error || cr.error || h.error
+      fetchAttendanceHistory(employee.id, 120),
+    ]).then(([e, a, cr, h, att]) => {
+      const err = e.error || cr.error || h.error || att.error
       if (err) onToast?.(err.message || 'Failed to load some data', 'error')
-      setExisting(cr.data || [])
       if (a.data) setApprover((e.data || []).find(x => x.id === a.data) || null)
-      setHolidays(new Set((h.data || []).map(x => x.holiday_date)))
+
+      const holNames = {}
+      for (const x of (h.data || [])) holNames[x.holiday_date] = x.name
+      const reqs = cr.data || []
+
+      const rows = (att.data || [])
+        .filter(r => r.date < today)
+        .map(r => {
+          const dow = new Date(r.date + 'T12:00:00').getDay()
+          const isWeekend = dow === 0 || dow === 6
+          const isHoliday = r.date in holNames
+          if (!isWeekend && !isHoliday) return null
+          const hours = r.total_hours || 0
+          const validPunches = !!r.check_in_time && !!r.check_out_time && r.status !== 'absent' && r.status !== 'incomplete'
+          const already = reqs.some(x => x.worked_date === r.date && x.status !== 'rejected')
+          const eligible = validPunches && hours >= 8 && !already
+          return {
+            date: r.date, hours, eligible,
+            kind: isHoliday ? holNames[r.date] : dow === 0 ? 'Sunday' : 'Saturday',
+            note: already ? 'Already requested'
+              : !validPunches ? 'Missing a valid punch — not eligible'
+                : hours < 8 ? 'Under 8h — not eligible'
+                  : 'Punches validated',
+          }
+        })
+        .filter(Boolean)
+
+      setCandidates(rows)
+      const firstOk = rows.find(r => r.eligible)
+      if (firstOk) setSelected(firstOk.date)
     }).finally(() => setLoading(false))
   }, [employee.id])
 
-  useEffect(() => {
-    if (!form.workedDate) { setAttendance(null); setChecks([]); return }
-    let cancelled = false
-    const d = new Date(form.workedDate + 'T12:00:00')
-    const dow = d.getDay()
-    const isWeekend = dow === 0 || dow === 6
-    const isPast = form.workedDate < today
-    const isHolOrWknd = isWeekend || holidays.has(form.workedDate)
-    const isDup = existingReqs.some(r => r.worked_date === form.workedDate && r.status !== 'rejected')
-    const label = formatDate(form.workedDate)
-
-    const base = [
-      { key: 'past', ok: isPast, text: isPast ? `${label} is in the past` : `${label} must be in the past` },
-      { key: 'weekend', ok: isHolOrWknd, text: isHolOrWknd
-        ? `${label} was a ${isWeekend ? (dow === 0 ? 'Sunday' : 'Saturday') : 'company holiday'}`
-        : `${label} is a weekday — comp-off requires a weekend or holiday` },
-      { key: 'dup', ok: !isDup, text: isDup ? 'A comp-off request already exists for this date' : 'No existing comp-off request for this date' },
-    ]
-    const canCheck = isPast && isHolOrWknd && !isDup
-    setAttendance(null); setAttLoading(canCheck)
-    setChecks([...base, { key: 'att', ok: false, text: canCheck ? 'Checking attendance…' : 'Attendance is checked once the above pass' }])
-    if (!canCheck) return
-
-    fetchAttendanceForDate(employee.id, form.workedDate).then(({ data: att }) => {
-      if (cancelled) return
-      let ok = false, text
-      if (!att || !att.check_in_time)                                    text = 'No check-in record found for this date'
-      else if (!att.check_out_time)                                      text = 'No check-out record — both check-in and check-out are required'
-      else if (att.status === 'absent' || att.status === 'incomplete')   text = `Attendance is marked as ${att.status}`
-      else if ((att.total_hours || 0) < 8)                               text = `Only ${(att.total_hours || 0).toFixed(1)}h logged — minimum 8 hours required`
-      else { ok = true; text = `Attendance verified: ${att.total_hours.toFixed(1)}h logged` }
-      setChecks([...base, { key: 'att', ok, text }])
-      setAttendance(ok ? att : null)
-      setAttLoading(false)
-    })
-    return () => { cancelled = true }
-  }, [form.workedDate, holidays, existingReqs])
-
-  const earnedDays = attendance ? (attendance.total_hours >= 8 ? 1 : 0) : 0
+  const picked = candidates.find(c => c.date === selected && c.eligible) || null
+  const eligibleCount = candidates.filter(c => c.eligible).length
 
   const submit = async () => {
     const e = {}
-    if (!attendance) e.workedDate = 'All checks above must pass before submitting'
-    if (!form.reason.trim()) e.reason = 'Required'
+    if (!picked) e.day = 'Pick an eligible day'
+    if (!reason.trim()) e.reason = 'Required'
     if (Object.keys(e).length) { setErrs(e); return }
     setSubmitting(true)
     const { error } = await applyCompOff({
-      employee_id: employee.id, worked_date: form.workedDate,
-      worked_hours: attendance.total_hours, earned_days: earnedDays,
-      reason: form.reason, approver_id: approver?.id || null,
+      employee_id: employee.id, worked_date: picked.date,
+      worked_hours: picked.hours, earned_days: 1,
+      reason: reason.trim(), approver_id: approver?.id || null,
     })
     setSubmitting(false)
     if (error) { onToast(error.message || (typeof error === 'string' ? error : 'Failed to submit'), 'error'); return }
@@ -322,76 +366,75 @@ export function ApplyCompOff({ employee, onToast }) {
   if (done) return <Done tone={C.purple} title="Comp off request submitted"
     sub={`Pending approval from ${approver?.full_name || 'your approver'}.`}
     againLabel="Submit another"
-    onAgain={() => { setDone(false); setForm({ workedDate: '', reason: '' }); setAttendance(null); setChecks([]); setErrs({}) }} />
+    onAgain={() => { setDone(false); setSelected(''); setReason(''); setErrs({}) }} />
 
   return (
-    <div className="split-2" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, alignItems: 'start' }}>
-      <div style={{ ...card, padding: 24 }}>
-        <div style={{
-          background: C.purpleBg, border: `1px solid ${C.purpleLine}`, borderRadius: 10,
-          padding: '13px 15px', marginBottom: 18, fontSize: 12, color: '#4a41a8', lineHeight: 1.6,
-        }}>
-          Work 8+ hours on a weekend or company holiday, with valid check-in and check-out, to earn 1 comp-off day. Your attendance record is validated automatically.
+    <div className="split-narrow" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, alignItems: 'start' }}>
+      <div style={{ ...card, padding: '24px 26px' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.muted }}>Eligible days worked</div>
+          <div style={{ fontSize: 11.5, color: '#7b8798' }}>8h+ on a weekend or holiday, with valid punches</div>
         </div>
-        <ApproverCard approver={approver} verb="Will be approved by" />
 
-        <Field label="Date worked (weekend / holiday)" error={errs.workedDate} style={{ marginTop: 16 }}>
-          <input type="date" max={today} value={form.workedDate}
-            onChange={e => { setForm(f => ({ ...f, workedDate: e.target.value })); setErrs({}) }}
-            style={inputStyle(errs.workedDate)} />
-        </Field>
-
-        {checks.length > 0 && (
-          <div style={{ ...card, marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 6, padding: 14 }}>
-            {checks.map(c => (
-              <div key={c.key} style={{ fontSize: 13, fontWeight: 500, color: c.ok ? '#1f7350' : c.text.includes('Checking') ? C.sub : C.red }}>
-                {c.ok ? '✓' : c.text.includes('Checking') ? '…' : '✕'} {c.text}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {attendance && !attLoading && (
-          <div style={{ background: C.greenBg, border: `1px solid ${C.greenLine}`, borderRadius: 10, padding: '12px 14px', marginBottom: 14 }}>
-            <div style={{ fontSize: 10.5, color: '#1f7350', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 8 }}>Attendance verified</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-              {[['Check in', fmtTime(attendance.check_in_time)], ['Check out', fmtTime(attendance.check_out_time)], ['Total', `${attendance.total_hours?.toFixed(1)}h`]].map(([k, v]) => (
-                <div key={k}>
-                  <div style={{ fontSize: 10, color: '#1f7350' }}>{k}</div>
-                  <div style={{ fontFamily: C.mono, fontSize: 13, fontWeight: 500, color: '#1f7350' }}>{v}</div>
-                </div>
-              ))}
+        <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {candidates.length === 0 && (
+            <div style={{ fontSize: 12.5, color: C.muted, padding: '18px 0', lineHeight: 1.6 }}>
+              No weekend or holiday work found in the last few months. Check in and out for 8h or more on a Saturday, Sunday, or company holiday and it will show up here.
             </div>
-          </div>
-        )}
+          )}
+          {candidates.map(c => {
+            const on = c.date === selected && c.eligible
+            return (
+              <div key={c.date} onClick={() => { if (c.eligible) { setSelected(c.date); setErrs({}) } }}
+                style={{
+                  display: 'grid', gridTemplateColumns: '20px 108px minmax(90px,1fr) 92px', gap: 14, alignItems: 'center',
+                  border: `1px solid ${on ? C.navy : C.line}`, background: on ? '#f4f8fd' : c.eligible ? '#fff' : C.bgSec,
+                  borderRadius: 10, padding: '13px 15px', cursor: c.eligible ? 'pointer' : 'not-allowed',
+                  boxShadow: on ? `inset 0 0 0 1px ${C.navy}` : 'none',
+                }}>
+                <span style={{ width: 14, height: 14, borderRadius: '50%', border: `1.5px solid ${on ? C.navy : c.eligible ? '#c8d3e0' : C.line}`, background: on ? C.navy : '#fff', boxShadow: on ? 'inset 0 0 0 2.5px #fff' : 'none' }} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 500, color: c.eligible ? C.ink : C.faint }}>{fmtPill(c.date)}</div>
+                  <div style={{ fontSize: 11, color: C.muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.kind}</div>
+                </div>
+                <div style={{ fontSize: 12, color: c.eligible ? '#2a5c8a' : '#c2882a' }}>{c.note}</div>
+                <div style={{ textAlign: 'right', fontFamily: C.mono, fontSize: 13, color: c.eligible ? C.ink : C.faint }}>{c.hours.toFixed(1)} h</div>
+              </div>
+            )
+          })}
+        </div>
+        {errs.day && <div style={{ fontSize: 11.5, color: '#c9564a', marginTop: 8 }}>{errs.day}</div>}
 
-        <Field label="What did you work on?" error={errs.reason}>
-          <textarea rows={3} value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
-            placeholder="One or two lines your manager can approve against"
-            style={{ ...inputStyle(errs.reason), resize: 'vertical', minHeight: 90 }} />
-        </Field>
+        <div style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.muted, margin: '24px 0 10px' }}>What did you work on?</div>
+        <textarea rows={3} value={reason}
+          onChange={e => { setReason(e.target.value); setErrs(p => ({ ...p, reason: undefined })) }}
+          placeholder="One or two lines your manager can approve against"
+          style={{ ...inputStyle(errs.reason), resize: 'vertical', minHeight: 96 }} />
+        {errs.reason && <div style={{ fontSize: 11.5, color: '#c9564a', marginTop: 6 }}>{errs.reason}</div>}
       </div>
 
       <div style={{ ...card, padding: 22, position: 'sticky', top: 24 }}>
         <div style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.muted }}>You will earn</div>
         <div style={{ fontFamily: C.serif, fontSize: 30, lineHeight: 1.15, marginTop: 10 }}>
-          {attendance ? `${earnedDays} day${earnedDays !== 1 ? 's' : ''}` : 'Nothing yet'}
+          {picked ? '1 day' : 'Nothing yet'}
         </div>
         <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-          {attendance ? `For ${formatDate(form.workedDate)} · ${attendance.total_hours?.toFixed(1)}h` : 'Pick an eligible day on the left'}
+          {picked ? `For ${fmtPill(picked.date)} · ${picked.hours.toFixed(1)} h`
+            : eligibleCount ? 'Pick an eligible day on the left' : 'No eligible days right now'}
         </div>
         <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${C.lineSoft}` }}>
           {[
-            ['Day worked', attendance ? formatDate(form.workedDate) : '—'],
-            ['Hours logged', attendance ? `${attendance.total_hours?.toFixed(1)}h` : '—'],
-            ['Comp off balance', attendance ? `+${earnedDays} day` : '—'],
+            ['Day worked', picked ? formatDate(picked.date) : '—'],
+            ['Hours logged', picked ? `${picked.hours.toFixed(1)} h` : '—'],
+            ['Comp off balance', picked ? '+1 day' : '—'],
+            ['Approver', approver?.full_name || '—'],
           ].map(([k, v]) => (
             <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '6px 0', fontSize: 12.5 }}>
-              <span style={{ color: C.sub }}>{k}</span><span style={{ color: C.body }}>{v}</span>
+              <span style={{ color: C.sub }}>{k}</span><span style={{ color: C.body, textAlign: 'right' }}>{v}</span>
             </div>
           ))}
         </div>
-        <Btn full disabled={submitting || !attendance} onClick={submit} style={{ marginTop: 16, background: C.purple }}>
+        <Btn full disabled={submitting || !picked} onClick={submit} style={{ marginTop: 16 }}>
           {submitting ? 'Submitting…' : 'Request comp off'}
         </Btn>
         <div style={{ textAlign: 'center', fontSize: 11.5, color: C.muted, marginTop: 9 }}>

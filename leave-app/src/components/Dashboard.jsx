@@ -5,10 +5,7 @@ import {
   fetchPendingForApprover, fetchPendingCompForApprover, fetchPendingTimesheets,
   fetchPendingRegularizations, decideLeave,
 } from '../lib/api'
-import {
-  Avatar, Badge, Btn, C, Panel, ProgressBar, SecTitle, Spinner, StatTile,
-  card, formatDate, formatDayMonth,
-} from './UI'
+import { Avatar, C, Panel, Spinner, card, formatDate } from './UI'
 
 const today = new Date().toISOString().split('T')[0]
 const fmtTime = ts => ts ? new Date(ts).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '—'
@@ -119,15 +116,15 @@ export default function Dashboard({ employee, onToast, onNavigate }) {
 
       {/* ── Check-in banner ── */}
       <div style={{
-        background: C.navy, borderRadius: 14, padding: '22px 24px', color: '#e7f2ec',
-        display: 'flex', alignItems: 'center', gap: 28, flexWrap: 'wrap',
+        background: C.navy, borderRadius: 14, padding: '24px 26px', color: '#e7f2ec',
+        display: 'flex', alignItems: 'center', gap: 32, flexWrap: 'wrap',
       }}>
-        <div style={{ flex: 1, minWidth: 200 }}>
+        <div style={{ flex: 1, minWidth: 220 }}>
           <div style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(231,242,236,0.6)' }}>
-            {checkedIn ? 'Checked in' : done ? 'Checked out' : 'Attendance'}
+            {checkedIn ? 'You are checked in' : done ? 'Checked out' : 'Attendance'}
           </div>
-          <div style={{ fontFamily: C.serif, fontSize: 36, lineHeight: 1.1, marginTop: 8, color: '#fff' }}>
-            {hours}<span style={{ fontSize: 18, color: 'rgba(255,255,255,0.6)' }}> h today</span>
+          <div style={{ fontFamily: C.serif, fontSize: 38, lineHeight: 1.1, marginTop: 8, color: '#fff' }}>
+            {hours}<span style={{ fontSize: 20, color: 'rgba(255,255,255,0.6)' }}> h today</span>
           </div>
           <div style={{ fontSize: 12.5, color: 'rgba(231,242,236,0.75)', marginTop: 6 }}>{bannerSub}</div>
         </div>
@@ -144,33 +141,34 @@ export default function Dashboard({ employee, onToast, onNavigate }) {
         </div>
       </div>
 
-      {/* ── Balance tiles ── */}
-      <div className="balance-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        {balances.map(b => {
-          const pct = b.total > 0 ? Math.round((b.used / b.total) * 100) : 0
-          return (
-            <StatTile
-              key={b.type_code}
-              label={b.label}
-              value={b.remaining}
-              unit={`of ${b.total}`}
-              meta={`${b.used} used`}
-              pct={pct}
-              color={TONE[b.type_code] || '#3a76ad'}
-              foot={<>
-                <span>{b.used} used</span>
-                {b.type_code === 'comp' && <span style={{ color: '#c2882a' }}>{b.total} earned</span>}
-              </>}
-            />
-          )
-        })}
-      </div>
+      {/* ── Balance — one card, three columns ── */}
+      {balances.length > 0 && (
+        <div className="dash-balance-grid" style={{ ...card, padding: 0 }}>
+          {balances.map(b => {
+            const pct = b.total > 0 ? Math.round(((b.total - b.remaining) / b.total) * 100) : 0
+            return (
+              <div key={b.type_code} className="dash-balance-cell">
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+                  <span style={{ fontSize: 12.5, color: C.sub }}>{b.label}</span>
+                  <span style={{ fontFamily: C.mono, fontSize: 10.5, color: C.faint }}>{b.used} used</span>
+                </div>
+                <div style={{ fontFamily: C.serif, fontSize: 34, lineHeight: 1, marginTop: 10 }}>
+                  {b.remaining}<span style={{ fontSize: 14, color: C.faint, fontFamily: C.sans }}> of {b.total}</span>
+                </div>
+                <div style={{ height: 4, borderRadius: 2, background: '#eaeff6', marginTop: 14, overflow: 'hidden' }}>
+                  <div style={{ height: 4, width: `${Math.max(0, Math.min(100, pct))}%`, background: TONE[b.type_code] || '#3a76ad' }} />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
 
       {/* ── Team today (approvers) ── */}
       {isApprover && teamToday.length > 0 && (
         <Panel title="Team today" right={<span style={{ fontSize: 11.5, color: C.sub }}>{teamIn} in · {teamLeave} on leave · {teamOut} not in</span>}>
           {teamToday.slice(0, 8).map(t => (
-            <div key={t.id} style={{ display: 'grid', gridTemplateColumns: '190px minmax(0,1fr) 120px', gap: 14, alignItems: 'center', padding: '9px 0', borderBottom: `1px solid ${C.rowLine}` }}>
+            <div key={t.id} style={{ display: 'grid', gridTemplateColumns: '190px minmax(0,1fr) 150px', gap: 14, alignItems: 'center', padding: '9px 0', borderBottom: `1px solid ${C.rowLine}` }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                 <Avatar initials={t.avatar_initials} size={26} bg={C.bgTert} color={C.sub} />
                 <span style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.full_name}</span>
@@ -187,10 +185,10 @@ export default function Dashboard({ employee, onToast, onNavigate }) {
         </Panel>
       )}
 
-      <div className="split-2" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16 }}>
+      <div className="home-grid" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, alignItems: 'start' }}>
 
-        {/* ── Your requests (everyone) ── */}
-        {leaves.length > 0 && (
+        {/* ── Your requests (employees) ── */}
+        {!isApprover && leaves.length > 0 && (
           <Panel title="Your requests" right={<span onClick={() => onNavigate?.('history')} style={{ fontSize: 12, color: C.blue, cursor: 'pointer' }}>All ›</span>}>
             {leaves.map(l => (
               <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 0', borderBottom: `1px solid ${C.lineSoft}` }}>
@@ -243,7 +241,7 @@ export default function Dashboard({ employee, onToast, onNavigate }) {
         )}
 
         {/* ── Coming up ── */}
-        <Panel title="Coming up">
+        <Panel title="Coming up" style={(!isApprover && leaves.length === 0) ? { gridColumn: '1 / -1' } : undefined}>
           {holidaysThisMonth.length === 0 && birthdaysThisMonth.length === 0 && (
             <div style={{ fontSize: 12.5, color: C.muted, padding: '4px 0' }}>Nothing on the calendar this month.</div>
           )}
@@ -264,10 +262,10 @@ export default function Dashboard({ employee, onToast, onNavigate }) {
 function ComingRow({ date, label, meta, chipBg, chipFg }) {
   const d = new Date(date + 'T12:00:00')
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '48px minmax(0,1fr)', gap: 14, padding: '12px 0', borderBottom: `1px solid ${C.lineSoft}`, alignItems: 'center' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '52px minmax(0,1fr)', gap: 14, padding: '12px 0', borderBottom: '1px solid #edf1f7', alignItems: 'center' }}>
       <div style={{ textAlign: 'center', borderRadius: 8, background: chipBg, padding: '5px 0' }}>
-        <div style={{ fontSize: 9, letterSpacing: '0.08em', textTransform: 'uppercase', color: chipFg }}>{d.toLocaleDateString('en-IN', { month: 'short' })}</div>
-        <div style={{ fontFamily: 'var(--mono)', fontSize: 14, color: chipFg }}>{d.getDate()}</div>
+        <div style={{ fontSize: 9.5, letterSpacing: '0.08em', textTransform: 'uppercase', color: chipFg }}>{d.toLocaleDateString('en-IN', { month: 'short' })}</div>
+        <div style={{ fontFamily: 'var(--mono)', fontSize: 15, color: chipFg }}>{d.getDate()}</div>
       </div>
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>

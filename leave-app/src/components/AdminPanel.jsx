@@ -1249,93 +1249,56 @@ export default function AdminPanel({ onToast }) {
         />
       )}
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-        <input
-          value={q} onChange={e => setQ(e.target.value)}
-          placeholder="Search employees…" style={{ ...inputStyle(), flex: 1, minWidth: 180 }}
-        />
-        <Btn variant="ghost" onClick={() => setView('bulk')} style={{ whiteSpace: 'nowrap' }}>Bulk add</Btn>
-        <Btn onClick={() => setView('add')} style={{ whiteSpace: 'nowrap' }}>+ Add employee</Btn>
+      <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', flex: 1, minWidth: 200, maxWidth: 320 }}>
+          <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: C.muted, fontSize: 13 }}>⌕</span>
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search employees"
+            style={{ ...inputStyle(), height: 34, padding: '0 12px 0 30px', fontSize: 13 }} />
+        </div>
+        <div style={{ flex: 1 }} />
+        <span style={{ fontFamily: C.mono, fontSize: 11.5, color: C.muted }}>{filtered.length} of {employees.length} shown</span>
+        <Btn variant="ghost" sm onClick={() => setView('bulk')} style={{ whiteSpace: 'nowrap' }}>Bulk add</Btn>
+        <Btn sm onClick={() => setView('add')} style={{ whiteSpace: 'nowrap' }}>+ Add employee</Btn>
       </div>
 
-      <div style={{ fontSize: 11, color: C.faint, marginBottom: 12 }}>{filtered.length} employee{filtered.length !== 1 ? 's' : ''}</div>
-
       {filtered.length === 0 ? <Empty text="No employees found" /> : (
-        <>
-          {/* Card list — mobile, below the ≥768px breakpoint */}
-          <div className="admin-emp-cards">
-            {filtered.map(e => {
-              const mgr = employees.find(x => x.id === e.manager_id)
-              return (
-                <div key={e.id} style={{ ...card, marginBottom: 10 }}>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                    <Avatar initials={e.avatar_initials} size={38} bg={C.bgTert} color={C.sub} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 14, fontWeight: 500 }}>{e.full_name}</div>
-                          <div style={{ fontSize: 11.5, color: C.sub }}>{e.employee_code} · {e.designation || ROLES[e.role]} · {e.department || '—'}</div>
-                          <div style={{ fontSize: 11, color: C.faint }}>Manager: {mgr?.full_name || '—'} · Joined {formatDate(e.joining_date)}</div>
-                          {!e.is_active && e.exit_date && (
-                            <div style={{ fontSize: 11, color: C.faint }}>Left {formatDate(e.exit_date)}{e.exit_reason ? ` · ${e.exit_reason}` : ''}</div>
-                          )}
-                        </div>
-                        <Badge status={e.is_active ? 'active' : 'inactive'} />
-                      </div>
-                      <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                        <Btn variant="ghost" sm onClick={() => { setEditing(e); setEditingTab('details'); setView('edit') }}>Edit</Btn>
-                        <Btn variant="subtle" sm onClick={() => { setEditing(e); setEditingTab('leave'); setView('edit') }}>Add / remove leaves</Btn>
-                        <Btn variant="subtle" sm onClick={() => setResetTarget(e)}>Reset password</Btn>
-                        {e.is_active
-                          ? <Btn variant="danger" sm onClick={() => setConfirm(e)}>Deactivate</Btn>
-                          : <Btn variant="subtle" sm onClick={() => handleReactivate(e.id)}>Reactivate</Btn>}
-                      </div>
-                    </div>
+        <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+          <div className="hscroll">
+            <div style={{ display: 'grid', gridTemplateColumns: EMP_COLS, gap: 14, alignItems: 'center', padding: '9px 22px', background: C.bgSec, borderBottom: `1px solid ${C.lineSoft}`, minWidth: 860, boxSizing: 'border-box', fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.muted, fontWeight: 600 }}>
+              <div>Employee</div><div>Designation</div><div>Dept</div><div>Role</div><div style={{ textAlign: 'right' }}>Actions</div>
+            </div>
+            {filtered.map(e => (
+              <div key={e.id}
+                onClick={() => { setEditing(e); setEditingTab('details'); setView('edit') }}
+                style={{ display: 'grid', gridTemplateColumns: EMP_COLS, gap: 14, alignItems: 'center', padding: '0 22px', minHeight: 56, borderBottom: `1px solid ${C.rowLine}`, minWidth: 860, boxSizing: 'border-box', cursor: 'pointer' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0, padding: '9px 0' }}>
+                  <Avatar initials={e.avatar_initials} size={28} bg={C.bgTert} color={C.sub} />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.full_name}</div>
+                    <div style={{ fontSize: 10.5, color: C.muted, fontFamily: C.mono }}>{e.employee_code}</div>
                   </div>
                 </div>
-              )
-            })}
+                <div style={{ fontSize: 12.5, color: C.body, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.designation || '—'}</div>
+                <div style={{ fontSize: 12.5, color: C.body, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.department || '—'}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: C.body }}>
+                  {ROLES[e.role]}
+                  {!e.is_active && <span style={{ fontSize: 10, letterSpacing: '0.05em', textTransform: 'uppercase', color: C.red, border: `1px solid ${C.redLine}`, borderRadius: 20, padding: '1px 7px' }}>Inactive</span>}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, flexWrap: 'wrap' }} onClick={ev => ev.stopPropagation()}>
+                  <button onClick={() => { setEditing(e); setEditingTab('details'); setView('edit') }} style={empActBtn}>Edit</button>
+                  <button onClick={() => setResetTarget(e)} style={empActBtn}>Reset</button>
+                  {e.is_active
+                    ? <button onClick={() => setConfirm(e)} style={{ ...empActBtn, color: C.red, borderColor: C.redLine }}>Deactivate</button>
+                    : <button onClick={() => handleReactivate(e.id)} style={{ ...empActBtn, color: '#2a5c8a' }}>Reactivate</button>}
+                </div>
+              </div>
+            ))}
           </div>
-
-          {/* Table — desktop, ≥768px */}
-          <div style={{ ...card, padding: 0, overflow: 'hidden' }} className="admin-emp-table-wrap">
-          <table className="admin-emp-table">
-            <thead>
-              <tr>
-                <th>Name</th><th>Code</th><th>Department</th><th>Designation</th><th>Role</th><th>Status</th><th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(e => (
-                <tr key={e.id}>
-                  <td style={{ fontWeight: 500 }}>{e.full_name}</td>
-                  <td style={{ color: C.sub, fontFamily: C.mono, fontSize: 12 }}>{e.employee_code}</td>
-                  <td style={{ color: C.sub }}>{e.department || '—'}</td>
-                  <td style={{ color: C.sub }}>{e.designation || '—'}</td>
-                  <td style={{ color: C.sub }}>{ROLES[e.role]}</td>
-                  <td>
-                    <Badge status={e.is_active ? 'active' : 'inactive'} />
-                    {!e.is_active && e.exit_date && (
-                      <div style={{ fontSize: 10, color: C.faint, marginTop: 3 }}>Left {formatDate(e.exit_date)}</div>
-                    )}
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                      <button onClick={() => { setEditing(e); setEditingTab('details'); setView('edit') }} style={{ background: 'none', border: 'none', color: C.blue, fontWeight: 500, cursor: 'pointer', fontSize: 12, padding: 0 }}>Edit</button>
-                      <button onClick={() => { setEditing(e); setEditingTab('leave'); setView('edit') }} style={{ background: 'none', border: 'none', color: C.purple, fontWeight: 500, cursor: 'pointer', fontSize: 12, padding: 0 }}>Leaves</button>
-                      <button onClick={() => setResetTarget(e)} style={{ background: 'none', border: 'none', color: C.blue, fontWeight: 500, cursor: 'pointer', fontSize: 12, padding: 0 }}>Reset password</button>
-                      {e.is_active
-                        ? <button onClick={() => setConfirm(e)} style={{ background: 'none', border: 'none', color: C.red, fontWeight: 500, cursor: 'pointer', fontSize: 12, padding: 0 }}>Deactivate</button>
-                        : <button onClick={() => handleReactivate(e.id)} style={{ background: 'none', border: 'none', color: C.green, fontWeight: 500, cursor: 'pointer', fontSize: 12, padding: 0 }}>Reactivate</button>}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
-        </>
+        </div>
       )}
     </div>
   )
 }
+
+const EMP_COLS = 'minmax(190px,1.6fr) minmax(150px,1.2fr) minmax(90px,120px) 150px 210px'
+const empActBtn = { height: 28, padding: '0 10px', border: `1px solid ${C.line}`, background: '#fff', borderRadius: 6, fontSize: 12, color: '#2b3648', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }

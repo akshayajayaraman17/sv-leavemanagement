@@ -152,6 +152,11 @@ button:focus-visible, [role="button"]:focus-visible, a:focus-visible {
 }
 .admin-emp-table tr:last-child td { border-bottom: none; }
 
+/* Dashboard balance — stacked on mobile, three columns on desktop (below) */
+.dash-balance-grid { display: grid; grid-template-columns: 1fr; }
+.dash-balance-cell { padding: 16px 20px; border-top: 1px solid #eaeff6; }
+.dash-balance-cell:first-child { border-top: none; }
+
 /* ── Desktop (≥900px) ─────────────────────────────────────────────────────── */
 @media (min-width: 900px) {
   .app-shell {
@@ -237,10 +242,16 @@ button:focus-visible, [role="button"]:focus-visible, a:focus-visible {
   .form-grid-2 { grid-template-columns: 1fr 1fr !important; }
   .form-grid-3 { grid-template-columns: 1fr 1fr 1fr !important; }
   .split-2 { grid-template-columns: minmax(0, 1fr) minmax(0, 320px) !important; }
+  .split-narrow { grid-template-columns: minmax(0, 1fr) minmax(0, 296px) !important; }
+  .home-grid { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) !important; }
 
   .admin-emp-cards { display: none; }
   .admin-emp-table-wrap { display: block; }
   .admin-emp-table { display: table; }
+
+  .dash-balance-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .dash-balance-cell { padding: 20px 24px; border-top: none; border-left: 1px solid #eaeff6; }
+  .dash-balance-cell:first-child { border-left: none; }
 }
 
 /* ── Utilities shared by rebuilt screens ──────────────────────────────────── */

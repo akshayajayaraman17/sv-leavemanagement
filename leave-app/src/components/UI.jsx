@@ -299,8 +299,8 @@ export function Segmented({ items, value, onChange, style }) {
 export function KV({ k, v, last }) {
   return (
     <div style={{
-      display: 'grid', gridTemplateColumns: '130px minmax(0,1fr)', gap: 12,
-      padding: '8px 0', borderBottom: last ? 'none' : `1px solid ${C.rowLine}`,
+      display: 'grid', gridTemplateColumns: '120px minmax(0,1fr)', gap: 12,
+      padding: '7px 0', borderBottom: last ? 'none' : `1px solid ${C.rowLine}`,
       fontSize: 13,
     }}>
       <span style={{ color: C.muted }}>{k}</span>

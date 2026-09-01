@@ -23,6 +23,7 @@ export default function Profile({ employee, onToast }) {
   const [pwErrs, setPwErrs] = useState({})
   const [changingPw, setChangingPw] = useState(false)
   const [pwStep, setPwStep] = useState('form')
+  const [showPw, setShowPw] = useState(false)
 
   const saveProfile = async () => {
     setSaving(true)
@@ -55,13 +56,14 @@ export default function Profile({ employee, onToast }) {
   return (
     <div className="split-2" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, alignItems: 'start' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div style={{ ...card, padding: 24 }}>
+        <div style={{ ...card, padding: '24px 26px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
             <Avatar initials={employee.avatar_initials} size={56} />
             <div style={{ flex: 1, minWidth: 180 }}>
               <div style={{ fontFamily: C.serif, fontSize: 24 }}>{employee.full_name}</div>
               <div style={{ fontSize: 12.5, color: C.sub, marginTop: 2 }}>{employee.designation || ROLE[employee.role]} · {employee.employee_code}</div>
             </div>
+            <Btn variant="ghost" sm onClick={() => setShowPw(v => !v)}>{showPw ? 'Hide' : 'Change password'}</Btn>
           </div>
           <div style={{ marginTop: 22 }}>
             <SecTitle>Details</SecTitle>
@@ -75,15 +77,7 @@ export default function Profile({ employee, onToast }) {
           </div>
         </div>
 
-        <Panel title="Edit profile">
-          <Field label="Phone number"><input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="+91 98765 43210" style={inputStyle()} /></Field>
-          <Field label="Address"><textarea rows={3} value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Your home / current address" style={{ ...inputStyle(), resize: 'vertical' }} /></Field>
-          <Field label="Date of birth" hint="Shown to coworkers on the dashboard during your birthday month">
-            <input type="date" max={today} value={form.date_of_birth} onChange={e => setForm(f => ({ ...f, date_of_birth: e.target.value }))} style={inputStyle()} />
-          </Field>
-          <Btn full disabled={saving} onClick={saveProfile}>{saving ? 'Saving…' : 'Save changes'}</Btn>
-        </Panel>
-
+        {showPw && (
         <Panel title="Change password">
           {pwStep === 'success' ? (
             <div style={{ background: C.greenBg, border: `1px solid ${C.greenLine}`, borderRadius: 9, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -104,6 +98,16 @@ export default function Profile({ employee, onToast }) {
               <Btn full disabled={changingPw} onClick={changePassword}>{changingPw ? 'Verifying…' : 'Change password'}</Btn>
             </>
           )}
+        </Panel>
+        )}
+
+        <Panel title="Edit profile">
+          <Field label="Phone number"><input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="+91 98765 43210" style={inputStyle()} /></Field>
+          <Field label="Address"><textarea rows={3} value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Your home / current address" style={{ ...inputStyle(), resize: 'vertical' }} /></Field>
+          <Field label="Date of birth" hint="Shown to coworkers on the dashboard during your birthday month">
+            <input type="date" max={today} value={form.date_of_birth} onChange={e => setForm(f => ({ ...f, date_of_birth: e.target.value }))} style={inputStyle()} />
+          </Field>
+          <Btn full disabled={saving} onClick={saveProfile}>{saving ? 'Saving…' : 'Save changes'}</Btn>
         </Panel>
       </div>
 

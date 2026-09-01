@@ -137,18 +137,6 @@ export default function Approvals({ employee, onToast }) {
     { id: 'regs', label: 'Regularizations', count: regs.length },
   ]
 
-  const chip = (k, v) => (
-    <div style={{ background: C.bgSec, borderRadius: 8, padding: '7px 10px', border: `1px solid ${C.lineSoft}` }}>
-      <div style={{ fontSize: 10, color: C.muted }}>{k}</div>
-      <div style={{ fontSize: 13, fontWeight: 500, marginTop: 2 }}>{v}</div>
-    </div>
-  )
-  const rowActions = (onApprove, onReject, id, rejectLabel = 'Reject') => (
-    <div style={{ display: 'flex', gap: 8 }}>
-      <Btn full disabled={deciding === id} onClick={onApprove}>Approve</Btn>
-      <Btn full variant="danger" disabled={deciding === id} onClick={onReject}>{rejectLabel}</Btn>
-    </div>
-  )
   const rejectInput = () => (
     <input autoFocus value={rejectReason} onChange={e => setRejectReason(e.target.value)}
       placeholder="Reason for rejection…" style={{ ...inputStyle(true), marginBottom: 10 }} />
@@ -156,6 +144,48 @@ export default function Approvals({ employee, onToast }) {
   const bulkOverride = (id) => bulkRejecting && selected.has(id) && (
     <input value={bulkRejectItems[id] || ''} onChange={e => setBulkRejectItems(p => ({ ...p, [id]: e.target.value }))}
       placeholder="Override reason for this item (optional)" style={{ ...inputStyle(), marginBottom: 10, fontSize: 12 }} />
+  )
+  const fmtT = ts => ts ? new Date(ts).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '—'
+  const apprBtn = { height: 32, padding: '0 14px', border: 'none', background: C.navy, borderRadius: 7, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: 'pointer', fontFamily: 'inherit' }
+  const rejBtn  = { height: 32, padding: '0 12px', border: `1px solid ${C.line}`, background: '#fff', borderRadius: 7, fontSize: 12.5, color: '#78859a', cursor: 'pointer', fontFamily: 'inherit' }
+
+  const row = ({ id, initials, avBg, avFg, who, code, what, reason, after, flag, flagFg, onApprove, onReject, rejectLabel = 'Reject', children }) => (
+    <div key={id} style={{ borderBottom: `1px solid ${C.rowLine}`, minWidth: 760, boxSizing: 'border-box' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '44px minmax(180px,1fr) minmax(160px,1.1fr) 128px 168px', gap: 16, alignItems: 'center', padding: '15px 20px' }}>
+        <input type="checkbox" checked={selected.has(id)} onChange={() => toggleSelected(id)} style={{ accentColor: C.navy, justifySelf: 'center' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0 }}>
+          <Avatar initials={initials} size={32} bg={avBg} color={avFg} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{who}</div>
+            {code && <div style={{ fontSize: 11, color: C.muted, fontFamily: C.mono }}>{code}</div>}
+          </div>
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 13, color: '#2b3648' }}>{what}</div>
+          {reason && <div style={{ fontSize: 11.5, color: C.sub, marginTop: 2 }}>{reason}</div>}
+        </div>
+        <div>
+          <div style={{ fontSize: 12, color: C.body }}>{after}</div>
+          {flag && <div style={{ fontSize: 11, color: flagFg || C.muted, marginTop: 2 }}>{flag}</div>}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 7 }}>
+          <button onClick={onApprove} disabled={deciding === id} style={apprBtn}>Approve</button>
+          <button onClick={onReject} disabled={deciding === id} style={rejBtn}>{rejectLabel}</button>
+        </div>
+      </div>
+      {children && <div style={{ padding: '0 20px 14px 80px' }}>{children}</div>}
+    </div>
+  )
+
+  const listCard = (rows) => (
+    <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+      <div className="hscroll">
+        {rows}
+        <div style={{ padding: '14px 20px', background: C.bgSec, fontSize: 12, color: C.muted, minWidth: 760, boxSizing: 'border-box' }}>
+          Approving a request updates the requester's balance immediately and notifies them.
+        </div>
+      </div>
+    </div>
   )
 
   return (
@@ -186,132 +216,86 @@ export default function Approvals({ employee, onToast }) {
         </div>
       )}
 
-      {tab === 'leaves' && (leaves.length === 0 ? <Empty text="All leave approvals done" /> : leaves.map(l => (
-        <div key={l.id} style={{ ...card, marginBottom: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-            <input type="checkbox" checked={selected.has(l.id)} onChange={() => toggleSelected(l.id)} style={{ accentColor: C.navy }} />
-            <Avatar initials={l.employee?.avatar_initials} size={32} bg={C.blueBg} color={C.blue} />
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 500 }}>{l.employee?.full_name}</div>
-              <div style={{ fontSize: 11, color: C.muted, textTransform: 'capitalize' }}>{l.employee?.department} · {l.leave_type} leave</div>
-            </div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
-            {chip('Duration', `${formatDate(l.from_date)} – ${formatDate(l.to_date)}`)}
-            {chip('Days', <Mono>{l.days}</Mono>)}
-          </div>
-          <div style={{ fontSize: 12, color: C.sub, borderTop: `1px solid ${C.lineSoft}`, padding: '8px 0 6px' }}>{l.reason}</div>
-          {l.medical_certificate_url && (
-            <button onClick={() => viewCertificate(l.medical_certificate_url)} style={{ fontSize: 11.5, color: C.blue, marginBottom: 10, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline' }}>View medical certificate</button>
-          )}
-          {rowActions(() => handleLeave(l.id, 'approved'), () => handleLeave(l.id, 'rejected'), l.id)}
-        </div>
-      )))}
+      {tab === 'leaves' && (leaves.length === 0 ? <Empty text="All leave approvals done" /> : listCard(leaves.map(l => row({
+        id: l.id, initials: l.employee?.avatar_initials, avBg: C.blueBg, avFg: C.blue,
+        who: l.employee?.full_name, code: l.employee?.employee_code || l.employee?.department,
+        what: <span style={{ textTransform: 'capitalize' }}>{l.leave_type} leave · {formatDate(l.from_date)} – {formatDate(l.to_date)}</span>,
+        reason: l.reason,
+        after: `${l.days} day${l.days !== 1 ? 's' : ''}`,
+        flag: l.medical_certificate_url
+          ? <button onClick={() => viewCertificate(l.medical_certificate_url)} style={{ fontSize: 11, color: C.blue, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline' }}>Medical certificate</button>
+          : null,
+        onApprove: () => handleLeave(l.id, 'approved'), onReject: () => handleLeave(l.id, 'rejected'),
+      }))))}
 
-      {tab === 'comp' && (comps.length === 0 ? <Empty text="All comp off approvals done" /> : comps.map(c => (
-        <div key={c.id} style={{ ...card, marginBottom: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-            <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggleSelected(c.id)} style={{ accentColor: C.navy }} />
-            <Avatar initials={c.employee?.avatar_initials} size={32} bg={C.purpleBg} color={C.purple} />
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 500 }}>{c.employee?.full_name}</div>
-              <div style={{ fontSize: 11, color: C.muted }}>{c.employee?.department} · Comp off</div>
-            </div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
-            {chip('Date worked', formatDate(c.worked_date))}
-            {chip('Hours → earning', <span><Mono>{c.worked_hours}h</Mono> → <span style={{ color: C.purple }}>+{c.earned_days}d</span></span>)}
-          </div>
-          <div style={{ fontSize: 12, color: C.sub, borderTop: `1px solid ${C.lineSoft}`, padding: '8px 0 10px' }}>{c.reason}</div>
-          {rowActions(() => handleComp(c.id, 'approved'), () => handleComp(c.id, 'rejected'), c.id)}
-        </div>
-      )))}
+      {tab === 'comp' && (comps.length === 0 ? <Empty text="All comp off approvals done" /> : listCard(comps.map(c => row({
+        id: c.id, initials: c.employee?.avatar_initials, avBg: C.purpleBg, avFg: C.purple,
+        who: c.employee?.full_name, code: c.employee?.employee_code || c.employee?.department,
+        what: `Comp off · worked ${formatDate(c.worked_date)}`,
+        reason: c.reason,
+        after: <>Earns <Mono>{c.earned_days}</Mono> day</>,
+        flag: <><Mono>{c.worked_hours}h</Mono> logged</>, flagFg: '#3a76ad',
+        onApprove: () => handleComp(c.id, 'approved'), onReject: () => handleComp(c.id, 'rejected'),
+      }))))}
 
-      {tab === 'regs' && (regs.length === 0 ? <Empty text="No pending regularization requests" /> : regs.map(r => (
-        <div key={r.id} style={{ ...card, marginBottom: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-            <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSelected(r.id)} style={{ accentColor: C.navy }} />
-            <Avatar initials={r.employee?.avatar_initials} size={32} bg="#f6ecd9" color="#8a6a22" />
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 500 }}>{r.employee?.full_name}</div>
-              <div style={{ fontSize: 11, color: C.muted }}>{r.employee?.department} · Attendance regularization</div>
-            </div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
-            {chip('Date', formatDate(r.attendance?.date))}
-            {chip('Check-in', r.attendance?.check_in_time ? new Date(r.attendance.check_in_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '—')}
-          </div>
-          {r.check_out_time && <div style={{ marginBottom: 10 }}>{chip('Proposed check-out', r.check_out_time)}</div>}
-          <div style={{ fontSize: 12, color: C.sub, borderTop: `1px solid ${C.lineSoft}`, padding: '8px 0 10px' }}><strong>Reason:</strong> {r.reason}</div>
-          {rejectId === r.id && rejectInput()}
-          {bulkOverride(r.id)}
-          {rowActions(
-            () => handleRegularization(r, 'approved'),
-            () => { if (rejectId === r.id && rejectReason.trim()) handleRegularization(r, 'rejected'); else { setRejectId(r.id); setRejectReason('') } },
-            r.id, rejectId === r.id ? 'Confirm reject' : 'Reject')}
-        </div>
-      )))}
+      {tab === 'regs' && (regs.length === 0 ? <Empty text="No pending regularization requests" /> : listCard(regs.map(r => row({
+        id: r.id, initials: r.employee?.avatar_initials, avBg: '#f6ecd9', avFg: '#8a6a22',
+        who: r.employee?.full_name, code: r.employee?.employee_code || r.employee?.department,
+        what: `Regularisation · ${formatDate(r.attendance?.date)}`,
+        reason: r.reason,
+        after: `In ${fmtT(r.attendance?.check_in_time)}`,
+        flag: r.check_out_time ? `Proposed out ${r.check_out_time}` : null,
+        rejectLabel: rejectId === r.id ? 'Confirm reject' : 'Reject',
+        onApprove: () => handleRegularization(r, 'approved'),
+        onReject: () => { if (rejectId === r.id && rejectReason.trim()) handleRegularization(r, 'rejected'); else { setRejectId(r.id); setRejectReason('') } },
+        children: (rejectId === r.id || (bulkRejecting && selected.has(r.id)))
+          ? <>{rejectId === r.id && rejectInput()}{bulkOverride(r.id)}</>
+          : null,
+      }))))}
 
-      {tab === 'timesheets' && (timesheets.length === 0 ? <Empty text="No timesheets pending approval" /> : timesheets.map(ts => {
+      {tab === 'timesheets' && (timesheets.length === 0 ? <Empty text="No timesheets pending approval" /> : listCard(timesheets.map(ts => {
         const entries = tsEntries[ts.id] || []
         const isExpanded = expandedTs === ts.id
-        const hpd = {}
-        for (const e of entries) hpd[e.date] = (hpd[e.date] || 0) + e.hours
-        return (
-          <div key={ts.id} style={{ ...card, marginBottom: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-              <input type="checkbox" checked={selected.has(ts.id)} onChange={() => toggleSelected(ts.id)} style={{ accentColor: C.navy }} />
-              <Avatar initials={ts.employee?.avatar_initials} size={32} bg={C.greenBg} color="#1f7350" />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 14, fontWeight: 500 }}>{ts.employee?.full_name}</div>
-                <div style={{ fontSize: 11, color: C.muted }}>{ts.employee?.department} · {ts.employee?.designation}</div>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontFamily: C.mono, fontSize: 17, fontWeight: 500, color: ts.total_hours >= 40 ? '#1f7350' : '#8a6a22' }}>{ts.total_hours}h</div>
-                <div style={{ fontSize: 10, color: C.muted }}>this week</div>
-              </div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
-              {chip('Week of', formatDate(ts.week_start))}
-              {chip('Submitted', formatDate(ts.submitted_at))}
-            </div>
-            <Btn variant="subtle" full sm style={{ marginBottom: 10 }} onClick={() => loadTsEntries(ts.id)}>
-              {isExpanded ? 'Hide entries' : 'View entries'}
-            </Btn>
-            {isExpanded && entries.length > 0 && (
-              <div style={{ marginBottom: 10 }}>
-                {Object.entries(entries.reduce((d, e) => { (d[e.date] = d[e.date] || []).push(e); return d }, {})).map(([date, de]) => (
-                  <div key={date} style={{ marginBottom: 8 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: C.sub, marginBottom: 4 }}>
-                      {new Date(date + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
-                      <span style={{ marginLeft: 8, color: C.muted, fontWeight: 400, fontFamily: C.mono }}>{hpd[date]}h</span>
-                    </div>
-                    {de.map(e => (
-                      <div key={e.id} style={{ background: C.bgSec, borderRadius: 8, padding: '6px 10px', marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          {e.jira_issue_key && <Mono style={{ background: C.blueBg, color: C.blue, fontSize: 10, fontWeight: 500, padding: '1px 6px', borderRadius: 5, marginRight: 6 }}>{e.jira_issue_key}</Mono>}
-                          <span style={{ fontSize: 12 }}>{e.task_description}</span>
+        const byDay = entries.reduce((d, e) => { (d[e.date] = d[e.date] || []).push(e); return d }, {})
+        return row({
+          id: ts.id, initials: ts.employee?.avatar_initials, avBg: C.greenBg, avFg: '#1f7350',
+          who: ts.employee?.full_name, code: ts.employee?.employee_code || ts.employee?.designation,
+          what: `Timesheet · week of ${formatDate(ts.week_start)}`,
+          reason: `Submitted ${formatDate(ts.submitted_at)}`,
+          after: <span style={{ fontFamily: C.mono, color: ts.total_hours >= 40 ? '#1f7350' : '#8a6a22' }}>{ts.total_hours}h logged</span>,
+          flag: <button onClick={() => loadTsEntries(ts.id)} style={{ fontSize: 11, color: C.blue, background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>{isExpanded ? 'Hide entries' : 'View entries'}</button>,
+          rejectLabel: rejectId === ts.id ? 'Confirm reject' : 'Reject',
+          onApprove: () => handleTimesheet(ts.id, 'approved'),
+          onReject: () => { if (rejectId === ts.id && rejectReason.trim()) handleTimesheet(ts.id, 'rejected'); else { setRejectId(ts.id); setRejectReason('') } },
+          children: ((isExpanded && entries.length > 0) || rejectId === ts.id || (bulkRejecting && selected.has(ts.id))) ? (
+              <>
+                {isExpanded && entries.length > 0 && (
+                  <div style={{ marginBottom: 10 }}>
+                    {Object.entries(byDay).map(([date, de]) => (
+                      <div key={date} style={{ marginBottom: 8 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: C.sub, marginBottom: 4 }}>
+                          {new Date(date + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
+                          <span style={{ marginLeft: 8, color: C.muted, fontWeight: 400, fontFamily: C.mono }}>{de.reduce((s, e) => s + e.hours, 0)}h</span>
                         </div>
-                        <Mono style={{ fontSize: 12, fontWeight: 500, flexShrink: 0, marginLeft: 8 }}>{e.hours}h</Mono>
+                        {de.map(e => (
+                          <div key={e.id} style={{ background: C.bgSec, borderRadius: 8, padding: '6px 10px', marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              {e.jira_issue_key && <Mono style={{ background: C.blueBg, color: C.blue, fontSize: 10, fontWeight: 500, padding: '1px 6px', borderRadius: 5, marginRight: 6 }}>{e.jira_issue_key}</Mono>}
+                              <span style={{ fontSize: 12 }}>{e.task_description}</span>
+                            </div>
+                            <Mono style={{ fontSize: 12, fontWeight: 500, flexShrink: 0, marginLeft: 8 }}>{e.hours}h</Mono>
+                          </div>
+                        ))}
                       </div>
                     ))}
                   </div>
-                ))}
-              </div>
-            )}
-            {rejectId === ts.id && rejectInput()}
-            {bulkOverride(ts.id)}
-            {rowActions(
-              () => handleTimesheet(ts.id, 'approved'),
-              () => { if (rejectId === ts.id && rejectReason.trim()) handleTimesheet(ts.id, 'rejected'); else { setRejectId(ts.id); setRejectReason('') } },
-              ts.id, rejectId === ts.id ? 'Confirm reject' : 'Reject')}
-          </div>
-        )
-      }))}
-
-      <div style={{ fontSize: 12, color: C.muted, marginTop: 8 }}>
-        Approving a request updates the requester's balance immediately and notifies them.
-      </div>
+                )}
+                {rejectId === ts.id && rejectInput()}
+                {bulkOverride(ts.id)}
+              </>
+            ) : null,
+        })
+      })))}
     </div>
   )
 }

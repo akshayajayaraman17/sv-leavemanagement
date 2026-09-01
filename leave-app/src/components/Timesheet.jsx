@@ -195,8 +195,16 @@ export default function Timesheet({ employee, onToast }) {
 
   return (
     <div>
+      {timesheet?.reject_reason && (
+        <div style={{ background: C.redBg, color: C.red, border: `1px solid ${C.redLine}`, fontSize: 12, padding: '10px 14px', borderRadius: 10, marginBottom: 14 }}>
+          <strong>Rejected: </strong>{timesheet.reject_reason}
+        </div>
+      )}
+
+      {showLateReq && <LateRequestForm timesheet={timesheet} onSubmit={() => { setShowLateReq(false); load(); onToast('Late submission request sent') }} onCancel={() => setShowLateReq(false)} />}
+
       <div style={{ ...card, padding: 0, overflow: 'hidden', marginBottom: 16 }}>
-        <div style={{ padding: '18px 22px', display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap', borderBottom: `1px solid ${C.lineSoft}` }}>
+        <div style={{ padding: '20px 24px', display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap', borderBottom: '1px solid #eaeff6' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <button onClick={() => setWeekOffset(w => w - 1)} style={navBtn}>‹</button>
             <div>
@@ -205,7 +213,7 @@ export default function Timesheet({ employee, onToast }) {
             </div>
             <button onClick={() => setWeekOffset(w => w + 1)} style={navBtn}>›</button>
           </div>
-          <div style={{ width: 1, height: 34, background: C.lineSoft }} />
+          <div style={{ width: 1, height: 34, background: '#eaeff6' }} />
           <div>
             <div style={{ fontSize: 10.5, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.muted }}>Logged</div>
             <div style={{ fontFamily: C.serif, fontSize: 23, lineHeight: 1.2 }}>{totalHours.toFixed(1)}<span style={{ fontSize: 13, color: C.faint, fontFamily: C.sans }}> of 40.0 h</span></div>
@@ -219,102 +227,104 @@ export default function Timesheet({ employee, onToast }) {
             {isLocked && !showLateReq && <Btn sm variant="danger" onClick={() => setShowLateReq(true)}>Request unlock</Btn>}
           </div>
         </div>
-        <div style={{ padding: '10px 22px', background: C.bgSec, fontSize: 11.5, color: C.sub }}>
+        <div style={{ padding: '10px 24px', background: C.bgSec, borderBottom: '1px solid #eaeff6', fontSize: 11.5, color: C.sub }}>
           Hours can't exceed your attendance for the day · a full day is 8h or more · due Friday, end of day
         </div>
-      </div>
 
-      {showLateReq && <LateRequestForm timesheet={timesheet} onSubmit={() => { setShowLateReq(false); load(); onToast('Late submission request sent') }} onCancel={() => setShowLateReq(false)} />}
+        {weekDays.map((date, i) => {
+          const dayEntries = entries.filter(e => e.date === date)
+          const dayTsHours = hoursPerDay[date] || 0
+          const att = attMap[date]
+          const attHours = att?.total_hours || 0
+          const hasAtt = !!att?.check_in_time
+          const isPast = date < today
+          const isFuture = date > today
+          const canAdd = isDraft && !isFuture && !isLocked && (hasAtt || !isPast)
+          const attStatus = !hasAtt && isPast ? 'absent' : hasAtt && !att?.check_out_time ? 'incomplete' : hasAtt ? 'present' : null
+          const exceeds = dayTsHours > attHours && attHours > 0
+          const expanded = dayEntries.length > 0 || addingDay === date
+          const cap = attHours ? `${(attHours - dayTsHours).toFixed(1)} of ${attHours.toFixed(1)} h available` : isPast && !hasAtt ? 'no attendance' : '—'
+          const barPct = attHours ? Math.min(100, (dayTsHours / attHours) * 100) : 0
+          const barFg = exceeds ? C.red : dayTsHours >= 8 ? '#1f7350' : '#3a76ad'
+          const rowBg = exceeds ? '#fdf3f1' : attStatus === 'absent' ? '#fdfaf4' : 'transparent'
+          const chip = isFuture ? { bg: '#edf1f7', fg: '#78859a' } : attStatus === 'absent' ? { bg: '#f6ecd9', fg: '#8a6a22' } : { bg: C.navy, fg: '#fff' }
+          const dayBtn = (label, tone, onClick, disabled) => {
+            const t = tone === 'add' ? { border: '#cfdff0', bg: '#f1f7fc', fg: C.navy }
+              : tone === 'reg' ? { border: '#e7d5ad', bg: '#fff', fg: '#8a6a22' }
+              : tone === 'cancel' ? { border: C.redLine, bg: '#fff', fg: C.red }
+              : { border: C.line, bg: '#fff', fg: C.faint }
+            return <button onClick={onClick} disabled={disabled} style={{ height: 30, padding: '0 12px', border: `1px solid ${t.border}`, background: t.bg, borderRadius: 7, fontSize: 12.5, color: t.fg, cursor: disabled ? 'default' : 'pointer', fontFamily: 'inherit' }}>{label}</button>
+          }
 
-      {timesheet?.reject_reason && (
-        <div style={{ background: C.redBg, color: C.red, border: `1px solid ${C.redLine}`, fontSize: 12, padding: '10px 14px', borderRadius: 10, marginBottom: 14 }}>
-          <strong>Rejected: </strong>{timesheet.reject_reason}
-        </div>
-      )}
-
-      {weekDays.map((date, i) => {
-        const dayEntries = entries.filter(e => e.date === date)
-        const dayTsHours = hoursPerDay[date] || 0
-        const att = attMap[date]
-        const attHours = att?.total_hours || 0
-        const hasAtt = !!att?.check_in_time
-        const isPast = date < today
-        const isFuture = date > today
-        const isToday = date === today
-        const canAdd = isDraft && !isFuture && !isLocked && (hasAtt || !isPast)
-        const attStatus = !hasAtt && isPast ? 'absent' : hasAtt && !att?.check_out_time ? 'incomplete' : hasAtt ? 'present' : null
-        const exceeds = dayTsHours > attHours && attHours > 0
-        const cap = attHours ? `${(attHours - dayTsHours).toFixed(1)} of ${attHours.toFixed(1)} h available` : isPast && !hasAtt ? 'no attendance' : '—'
-        const barPct = attHours ? Math.min(100, (dayTsHours / attHours) * 100) : 0
-        const barFg = exceeds ? C.red : dayTsHours >= 8 ? '#1f7350' : '#3a76ad'
-
-        return (
-          <div key={date} style={{ ...card, marginBottom: 12, border: exceeds ? `1px solid ${C.redLine}` : `1px solid ${C.line}`, background: attStatus === 'absent' ? '#fdfaf4' : '#fff' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '52px minmax(0,1fr) auto', gap: 14, alignItems: 'center' }}>
-              <div style={{ textAlign: 'center', borderRadius: 8, background: isToday ? C.navy : isFuture ? C.bgTert : '#f6ecd9', padding: '5px 0', opacity: attStatus === 'absent' || !isPast ? 1 : 1 }}>
-                <div style={{ fontSize: 9, letterSpacing: '0.08em', textTransform: 'uppercase', color: isToday ? 'rgba(255,255,255,0.7)' : isFuture ? C.sub : '#8a6a22' }}>{DAY_SHORT[i]}</div>
-                <Mono style={{ fontSize: 15, color: isToday ? '#fff' : isFuture ? C.sub : '#8a6a22' }}>{new Date(date + 'T12:00:00').getDate()}</Mono>
-              </div>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 500 }}>{DAY_LABELS[i]}</div>
-                <div style={{ fontSize: 11.5, color: exceeds ? C.red : C.sub, marginTop: 2 }}>
-                  {exceeds ? `${dayTsHours}h — exceeds attendance` :
-                   attStatus === 'absent' ? 'No attendance record — entry blocked' :
-                   attStatus === 'incomplete' ? 'Incomplete attendance — regularize first' :
-                   dayTsHours >= 8 ? `${dayTsHours}h logged` :
-                   dayTsHours > 0 ? `${dayTsHours}h logged` :
-                   isFuture ? 'Not yet worked' : hasAtt ? `${attHours.toFixed(1)}h attendance recorded` : 'No entries yet'}
+          return (
+            <div key={date} style={{ borderBottom: '1px solid #f1f5fa', background: rowBg }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '56px minmax(0,1fr) 150px 96px', gap: 16, alignItems: 'center', padding: '15px 24px' }}>
+                <div style={{ textAlign: 'center', borderRadius: 8, background: chip.bg, padding: '5px 0' }}>
+                  <div style={{ fontSize: 9.5, letterSpacing: '0.08em', textTransform: 'uppercase', color: chip.fg, opacity: chip.fg === '#fff' ? 0.7 : 1 }}>{DAY_SHORT[i]}</div>
+                  <Mono style={{ fontSize: 15, color: chip.fg }}>{new Date(date + 'T12:00:00').getDate()}</Mono>
                 </div>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                {canAdd
-                  ? <Btn sm variant={addingDay === date ? 'danger' : 'subtle'} onClick={() => setAddingDay(addingDay === date ? null : date)}>{addingDay === date ? 'Cancel' : 'Add hours'}</Btn>
-                  : attStatus === 'absent' && isDraft
-                    ? <Btn sm variant="ghost" style={{ borderColor: C.amberLine, color: '#8a6a22' }} onClick={() => onToast('Raise a regularization from the Attendance screen')}>Regularise</Btn>
-                    : null}
-              </div>
-            </div>
-
-            {attHours > 0 && (
-              <div style={{ marginTop: 12 }}>
-                <div style={{ height: 5, borderRadius: 3, background: C.lineSoft, overflow: 'hidden' }}>
-                  <div style={{ height: 5, width: `${barPct}%`, background: barFg }} />
-                </div>
-                <div style={{ fontFamily: C.mono, fontSize: 11, color: C.muted, marginTop: 6 }}>{cap}</div>
-              </div>
-            )}
-
-            {dayEntries.length > 0 && (
-              <div style={{ borderTop: `1px solid ${C.lineSoft}`, marginTop: 12, paddingTop: 8 }}>
-                {dayEntries.map(entry => (
-                  <div key={entry.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '7px 0', borderBottom: `1px solid ${C.rowLine}` }}>
-                    <div style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginBottom: 2 }}>
-                        {entry.jira_issue_key && <Mono style={{ background: C.blueBg, color: C.blue, fontSize: 10, fontWeight: 500, padding: '2px 7px', borderRadius: 6 }}>{entry.jira_issue_key}</Mono>}
-                        {entry.project && <span style={{ fontSize: 11, color: C.muted }}>{entry.project}</span>}
-                        {entry.jira_synced && <span style={{ fontSize: 10, color: '#1f7350' }}>✓ Jira</span>}
-                      </div>
-                      <div style={{ fontSize: 13 }}>{entry.task_description}</div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                      <Mono style={{ fontSize: 13, fontWeight: 500 }}>{entry.hours}h</Mono>
-                      {isDraft && !isLocked && (
-                        <button onClick={() => handleDelete(entry.id)} disabled={deleting === entry.id} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.faint, fontSize: 16, lineHeight: 1 }}>×</button>
-                      )}
-                    </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 500 }}>{DAY_LABELS[i]}</div>
+                  <div style={{ fontSize: 11.5, color: exceeds || attStatus === 'absent' || attStatus === 'incomplete' ? '#8a6a22' : C.sub, marginTop: 2 }}>
+                    {exceeds ? `${dayTsHours}h — exceeds attendance` :
+                     attStatus === 'absent' ? 'No attendance record — entry blocked' :
+                     attStatus === 'incomplete' ? 'Incomplete attendance — regularize first' :
+                     dayTsHours > 0 ? `${dayTsHours}h logged` :
+                     isFuture ? 'Not yet worked' : hasAtt ? `${attHours.toFixed(1)}h attendance recorded` : 'No entries yet'}
                   </div>
-                ))}
+                </div>
+                <div>
+                  <div style={{ height: 5, borderRadius: 3, background: '#eaeff6', overflow: 'hidden' }}>
+                    <div style={{ height: 5, width: `${barPct}%`, background: barFg }} />
+                  </div>
+                  <div style={{ fontFamily: C.mono, fontSize: 11, color: C.muted, marginTop: 6 }}>{cap}</div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  {canAdd
+                    ? dayBtn(addingDay === date ? 'Cancel' : 'Add hours', addingDay === date ? 'cancel' : 'add', () => setAddingDay(addingDay === date ? null : date))
+                    : attStatus === 'absent' && isDraft
+                      ? dayBtn('Regularise', 'reg', () => onToast('Raise a regularization from the Attendance screen'))
+                      : isFuture && isDraft
+                        ? dayBtn('Add', 'future', undefined, true)
+                        : null}
+                </div>
               </div>
-            )}
 
-            {addingDay === date && (
-              <EntryForm date={date} timesheetId={timesheet.id} employeeId={employee.id} jiraConnected={jiraConnected}
-                attHours={attHours} dayTsHours={dayTsHours}
-                onSave={async () => { setAddingDay(null); await reloadEntries() }} onCancel={() => setAddingDay(null)} />
-            )}
-          </div>
-        )
-      })}
+              {expanded && (
+                <div style={{ padding: '0 24px 14px' }}>
+                  {dayEntries.length > 0 && (
+                    <div style={{ borderTop: '1px solid #f1f5fa', paddingTop: 6 }}>
+                      {dayEntries.map(entry => (
+                        <div key={entry.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '7px 0', borderBottom: `1px solid ${C.rowLine}` }}>
+                          <div style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginBottom: 2 }}>
+                              {entry.jira_issue_key && <Mono style={{ background: C.blueBg, color: C.blue, fontSize: 10, fontWeight: 500, padding: '2px 7px', borderRadius: 6 }}>{entry.jira_issue_key}</Mono>}
+                              {entry.project && <span style={{ fontSize: 11, color: C.muted }}>{entry.project}</span>}
+                              {entry.jira_synced && <span style={{ fontSize: 10, color: '#1f7350' }}>✓ Jira</span>}
+                            </div>
+                            <div style={{ fontSize: 13 }}>{entry.task_description}</div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                            <Mono style={{ fontSize: 13, fontWeight: 500 }}>{entry.hours}h</Mono>
+                            {isDraft && !isLocked && (
+                              <button onClick={() => handleDelete(entry.id)} disabled={deleting === entry.id} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.faint, fontSize: 16, lineHeight: 1 }}>×</button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {addingDay === date && (
+                    <EntryForm date={date} timesheetId={timesheet.id} employeeId={employee.id} jiraConnected={jiraConnected}
+                      attHours={attHours} dayTsHours={dayTsHours}
+                      onSave={async () => { setAddingDay(null); await reloadEntries() }} onCancel={() => setAddingDay(null)} />
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
 
       {isDraft && !isLocked && submitErrors.length > 0 && (
         <div style={{ ...card, background: '#fdfaf4', border: `1px solid ${C.amberLine}`, marginBottom: 12 }}>

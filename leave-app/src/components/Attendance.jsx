@@ -197,7 +197,7 @@ export default function Attendance({ employee, onToast }) {
             </div>
             <div style={{ flex: 1, minWidth: 200 }}>
               <div style={{ fontSize: 12.5, color: C.sub }}>{new Date().toLocaleDateString('en-IN', { weekday: 'long' })}</div>
-              <div style={{ fontFamily: C.serif, fontSize: 24, marginTop: 2 }}>{new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+              <div style={{ fontFamily: C.serif, fontSize: 26, marginTop: 2 }}>{new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
               <div style={{ display: 'flex', gap: 22, marginTop: 16, flexWrap: 'wrap' }}>
                 {[
                   ['First in', formatTime(punches[0]?.punch_time)],
@@ -228,7 +228,7 @@ export default function Attendance({ employee, onToast }) {
             <div style={{ marginTop: 22, paddingTop: 18, borderTop: `1px solid ${C.lineSoft}` }}>
               <SecTitle>Today's punches</SecTitle>
               {punches.map((p, i) => (
-                <div key={p.id || i} style={{ display: 'grid', gridTemplateColumns: '14px 84px minmax(0,1fr) auto', gap: 12, alignItems: 'center', padding: '10px 0', borderBottom: i < punches.length - 1 ? `1px solid ${C.rowLine}` : 'none' }}>
+                <div key={p.id || i} style={{ display: 'grid', gridTemplateColumns: '14px 78px minmax(0,1fr) auto', gap: 12, alignItems: 'center', padding: '11px 0', borderBottom: i < punches.length - 1 ? '1px solid #f1f5fa' : 'none' }}>
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: p.punch_type === 'check_in' ? C.greenDot : '#c2882a' }} />
                   <span style={{ fontSize: 13, fontWeight: 500 }}>{p.punch_type === 'check_in' ? 'Check in' : 'Check out'}</span>
                   <span style={{ fontSize: 12, color: C.sub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.address || '—'}</span>
@@ -264,7 +264,7 @@ export default function Attendance({ employee, onToast }) {
               const incomplete = rec?.check_in_time && !rec?.check_out_time && isPast
               const fg = incomplete ? C.red : h >= MIN_HOURS ? '#1f7350' : h > 0 ? '#b0761d' : C.faint
               return (
-                <div key={d} style={{ display: 'grid', gridTemplateColumns: '34px minmax(0,1fr) 46px', gap: 12, alignItems: 'center', padding: '8px 0' }}>
+                <div key={d} style={{ display: 'grid', gridTemplateColumns: '34px minmax(0,1fr) 42px', gap: 12, alignItems: 'center', padding: '9px 0' }}>
                   <span style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: isToday ? C.navy : C.muted, fontWeight: isToday ? 600 : 400 }}>{DAY_SHORT[i]}</span>
                   <div style={{ height: 6, borderRadius: 3, background: C.lineSoft, overflow: 'hidden' }}>
                     <div style={{ height: 6, width: `${Math.min(100, (h / MIN_HOURS) * 100)}%`, background: fg }} />
