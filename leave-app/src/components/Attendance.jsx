@@ -7,29 +7,9 @@ import {
 } from '../lib/api'
 import { Badge, Btn, C, Field, Mono, Panel, SecTitle, Spinner, card, formatDate, inputStyle } from './UI'
 import { toDateStr, todayStr as todayStrFn } from '../lib/dates'
+import { getLocation, reverseGeocode, calcHoursFromPunches } from '../lib/attendance'
 
 const MIN_HOURS = 8
-
-function getLocation() {
-  return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) { reject(new Error('Geolocation is not supported by your browser')); return }
-    navigator.geolocation.getCurrentPosition(
-      p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
-      e => reject(new Error(e.code === 1 ? 'Location permission denied' : 'Could not get location')),
-      { enableHighAccuracy: true, timeout: 15000 }
-    )
-  })
-}
-
-async function reverseGeocode(lat, lng) {
-  try {
-    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`, { headers: { 'Accept-Language': 'en' } })
-    const j = await res.json()
-    const a = j.address || {}
-    const parts = [a.road, a.suburb || a.neighbourhood || a.quarter, a.city || a.town || a.village || a.county].filter(Boolean)
-    return parts.length ? parts.join(', ') : j.display_name || `${lat.toFixed(4)}, ${lng.toFixed(4)}`
-  } catch { return `${lat.toFixed(4)}, ${lng.toFixed(4)}` }
-}
 
 function getWeekDays() {
   const t = new Date()
@@ -40,17 +20,6 @@ function getWeekDays() {
 }
 const formatTime = ts => ts ? new Date(ts).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '—'
 const DAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
-
-function calcHoursFromPunches(punches) {
-  let total = 0
-  for (let i = 0; i < punches.length; i++) {
-    if (punches[i].punch_type === 'check_in') {
-      const out = punches.find((p, j) => j > i && p.punch_type === 'check_out')
-      if (out) total += (new Date(out.punch_time) - new Date(punches[i].punch_time)) / 3600000
-    }
-  }
-  return Math.round(total * 100) / 100
-}
 
 export default function Attendance({ employee, onToast }) {
   const [record, setRecord]   = useState(null)

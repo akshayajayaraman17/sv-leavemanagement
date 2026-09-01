@@ -7,6 +7,7 @@ import {
 } from '../lib/api'
 import { Avatar, C, Panel, Spinner, card, formatDate } from './UI'
 import { todayStr } from '../lib/dates'
+import { punchIn, punchOut } from '../lib/attendance'
 
 const today = todayStr()
 const fmtTime = ts => ts ? new Date(ts).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '—'
@@ -26,6 +27,7 @@ export default function Dashboard({ employee, onToast, onNavigate }) {
   const [pendingCounts, setPendingCounts] = useState({ leave: 0, comp: 0, ts: 0, reg: 0 })
   const [teamToday, setTeamToday] = useState([])
   const [deciding, setDeciding] = useState(null)
+  const [punching, setPunching] = useState(false)
 
   useEffect(() => {
     setLoading(true)
@@ -85,6 +87,23 @@ export default function Dashboard({ employee, onToast, onNavigate }) {
     setPendingCounts(p => ({ ...p, leave: Math.max(0, p.leave - 1) }))
   }
 
+  const handlePunch = async () => {
+    const isIn = attendance?.check_in_time && !attendance?.check_out_time
+    setPunching(true)
+    try {
+      const { data, error } = isIn ? await punchOut(employee, attendance) : await punchIn(employee, attendance)
+      if (error) { onToast?.(typeof error === 'string' ? error : error.message, 'error'); return }
+      const { data: fresh } = await fetchTodayAttendance(employee.id)
+      setAttendance(fresh || data || null)
+      onToast?.(isIn ? 'Checked out' : 'Checked in')
+    } catch (e) {
+      onToast?.(`${e.message} — check in from the Attendance page`, 'error')
+      onNavigate?.('attendance')
+    } finally {
+      setPunching(false)
+    }
+  }
+
   if (loading) return <Spinner />
 
   const curMonth = new Date().getMonth()
@@ -131,9 +150,9 @@ export default function Dashboard({ employee, onToast, onNavigate }) {
         </div>
         <div style={{ width: 1, alignSelf: 'stretch', background: 'rgba(255,255,255,0.14)' }} />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 190 }}>
-          <button onClick={() => onNavigate?.('attendance')}
-            style={{ height: 42, border: 'none', borderRadius: 9, background: '#fff', color: C.navy, fontSize: 13.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-            {bannerLabel}
+          <button onClick={handlePunch} disabled={punching}
+            style={{ height: 42, border: 'none', borderRadius: 9, background: '#fff', color: C.navy, fontSize: 13.5, fontWeight: 600, cursor: punching ? 'default' : 'pointer', fontFamily: 'inherit', opacity: punching ? 0.7 : 1 }}>
+            {punching ? (checkedIn ? 'Checking out…' : 'Checking in…') : bannerLabel}
           </button>
           <button onClick={() => onNavigate?.('apply')}
             style={{ height: 38, border: '1px solid rgba(255,255,255,0.3)', borderRadius: 9, background: 'none', color: '#e7f2ec', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
