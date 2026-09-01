@@ -11,8 +11,7 @@ import {
 import { fetchNotificationFeed, getNotifSeenAt } from './lib/notifications'
 
 const Dashboard     = lazy(() => import('./components/Dashboard'))
-const ApplyLeave    = lazy(() => import('./components/ApplyLeave').then(m => ({ default: m.ApplyLeave })))
-const ApplyCompOff  = lazy(() => import('./components/ApplyLeave').then(m => ({ default: m.ApplyCompOff })))
+const Apply         = lazy(() => import('./components/ApplyLeave').then(m => ({ default: m.Apply })))
 const MyLeaves      = lazy(() => import('./components/MyLeaves'))
 const Approvals     = lazy(() => import('./components/Approvals'))
 const AdminPanel    = lazy(() => import('./components/AdminPanel'))
@@ -32,7 +31,6 @@ const NAV_ALL = [
   { id: 'attendance',    label: 'Attendance',    icon: '◷', roles: ['employee', 'manager', 'admin'], group: 'main' },
   { id: 'timesheet',     label: 'Timesheet',     icon: '▦', roles: ['employee', 'manager', 'admin'], group: 'main' },
   { id: 'apply',         label: 'Apply',         icon: '＋', roles: ['employee', 'manager', 'admin'], group: 'main' },
-  { id: 'comp',          label: 'Comp Off',      icon: '◈', roles: ['employee', 'manager', 'admin'], group: 'main' },
   { id: 'approvals',     label: 'Approvals',     icon: '✓', roles: ['manager', 'admin'],             group: 'main' },
   { id: 'profile',       label: 'My Profile',    icon: '○', roles: ['employee', 'manager', 'admin'], group: 'main' },
   { id: 'admin',         label: 'Employees',     icon: '▦', roles: ['admin'],                        group: 'main' },
@@ -45,7 +43,7 @@ const NAV_ALL = [
 
 const TITLES = {
   notifications: 'Notifications', attendance: 'Attendance', timesheet: 'Timesheet',
-  apply: 'Apply for leave', comp: 'Request comp off', history: 'My Leaves', calendar: 'Team Calendar',
+  apply: 'Apply', history: 'My Leaves', calendar: 'Team Calendar',
   approvals: 'Approvals', team: 'Team', admin: 'Employees', jira: 'Jira', profile: 'My Profile',
 }
 
@@ -216,8 +214,7 @@ export default function App() {
                 {tab === 'notifications' && <Notifications employee={employee} onToast={showToast} />}
                 {tab === 'attendance'    && <Attendance    employee={employee} onToast={showToast} />}
                 {tab === 'timesheet'     && <Timesheet     employee={employee} onToast={showToast} />}
-                {tab === 'apply'         && <ApplyLeave    employee={employee} onToast={showToast} />}
-                {tab === 'comp'          && <ApplyCompOff  employee={employee} onToast={showToast} />}
+                {tab === 'apply'         && <Apply         employee={employee} onToast={showToast} />}
                 {tab === 'history'       && <MyLeaves      employee={employee} onToast={showToast} />}
                 {tab === 'calendar'      && <Calendar      onToast={showToast} />}
                 {tab === 'approvals'     && <Approvals     employee={employee} onToast={showToast} />}

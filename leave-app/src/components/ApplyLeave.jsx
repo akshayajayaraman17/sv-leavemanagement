@@ -4,7 +4,7 @@ import {
   uploadMedicalCertificate, fetchMyCompRequests, fetchHolidays, fetchAttendanceHistory,
 } from '../lib/api'
 import { workingDays } from '../lib/leaveDays'
-import { Btn, C, Field, Mono, Spinner, card, formatDate, inputStyle } from './UI'
+import { Btn, C, Field, Mono, Segmented, Spinner, card, formatDate, inputStyle } from './UI'
 
 const today = new Date().toISOString().split('T')[0]
 
@@ -62,6 +62,22 @@ function RangeCalendar({ from, to, minDate, single, onPick }) {
           )
         })}
       </div>
+    </div>
+  )
+}
+
+// ── Apply (leave + comp off in one screen) ────────────────────────────────────
+export function Apply({ employee, onToast }) {
+  const [mode, setMode] = useState('leave')
+  return (
+    <div>
+      <Segmented
+        items={[{ id: 'leave', label: 'Leave request' }, { id: 'comp', label: 'Comp off' }]}
+        value={mode} onChange={setMode} style={{ marginBottom: 18 }}
+      />
+      {mode === 'leave'
+        ? <ApplyLeave employee={employee} onToast={onToast} />
+        : <ApplyCompOff employee={employee} onToast={onToast} />}
     </div>
   )
 }
