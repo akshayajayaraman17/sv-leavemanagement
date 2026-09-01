@@ -4,7 +4,10 @@ import Login from './components/Login'
 import ForcePasswordChange from './components/ForcePasswordChange'
 import ErrorBoundary from './components/ErrorBoundary'
 import { Toast, C, Spinner, Avatar } from './components/UI'
-import { signOut } from './lib/api'
+import {
+  signOut, fetchPendingForApprover, fetchPendingCompForApprover,
+  fetchPendingTimesheets, fetchPendingRegularizations,
+} from './lib/api'
 import { fetchNotificationFeed, getNotifSeenAt } from './lib/notifications'
 
 const Dashboard     = lazy(() => import('./components/Dashboard'))
@@ -21,27 +24,29 @@ const Team          = lazy(() => import('./components/Team'))
 const Notifications = lazy(() => import('./components/Notifications'))
 const Calendar      = lazy(() => import('./components/Calendar'))
 
-// icon = 14px-wide monochrome glyph, matching the mockup's muted nav marks
+// icon = 14px-wide monochrome glyph, matching the mockup's muted nav marks.
+// group 'main' = the mockup's primary nav (shown first); group 'more' = app-only
+// pages (Notifications, My Leaves, Calendar, Team, Jira) grouped below a divider.
 const NAV_ALL = [
-  { id: 'dash',          label: 'Home',          icon: '◆', roles: ['employee', 'manager', 'admin'] },
-  { id: 'notifications', label: 'Notifications', icon: '◔', roles: ['employee', 'manager', 'admin'] },
-  { id: 'attendance',    label: 'Attendance',    icon: '◷', roles: ['employee', 'manager', 'admin'] },
-  { id: 'timesheet',     label: 'Timesheet',     icon: '▦', roles: ['employee', 'manager', 'admin'] },
-  { id: 'apply',         label: 'Apply',         icon: '＋', roles: ['employee', 'manager', 'admin'] },
-  { id: 'comp',          label: 'Comp Off',      icon: '◈', roles: ['employee', 'manager', 'admin'] },
-  { id: 'history',       label: 'My Leaves',     icon: '≡', roles: ['employee', 'manager', 'admin'] },
-  { id: 'calendar',      label: 'Calendar',      icon: '▤', roles: ['employee', 'manager', 'admin'] },
-  { id: 'approvals',     label: 'Approvals',     icon: '✓', roles: ['manager', 'admin'] },
-  { id: 'team',          label: 'Team',          icon: '⬡', roles: ['manager'] },
-  { id: 'admin',         label: 'Admin Panel',   icon: '⚙', roles: ['admin'] },
-  { id: 'jira',          label: 'Jira',          icon: '⟐', roles: ['employee', 'manager', 'admin'] },
-  { id: 'profile',       label: 'My Profile',    icon: '○', roles: ['employee', 'manager', 'admin'] },
+  { id: 'dash',          label: 'Home',          icon: '◆', roles: ['employee', 'manager', 'admin'], group: 'main' },
+  { id: 'attendance',    label: 'Attendance',    icon: '◷', roles: ['employee', 'manager', 'admin'], group: 'main' },
+  { id: 'timesheet',     label: 'Timesheet',     icon: '▦', roles: ['employee', 'manager', 'admin'], group: 'main' },
+  { id: 'apply',         label: 'Apply',         icon: '＋', roles: ['employee', 'manager', 'admin'], group: 'main' },
+  { id: 'comp',          label: 'Comp Off',      icon: '◈', roles: ['employee', 'manager', 'admin'], group: 'main' },
+  { id: 'approvals',     label: 'Approvals',     icon: '✓', roles: ['manager', 'admin'],             group: 'main' },
+  { id: 'profile',       label: 'My Profile',    icon: '○', roles: ['employee', 'manager', 'admin'], group: 'main' },
+  { id: 'admin',         label: 'Employees',     icon: '▦', roles: ['admin'],                        group: 'main' },
+  { id: 'notifications', label: 'Notifications', icon: '◔', roles: ['employee', 'manager', 'admin'], group: 'more' },
+  { id: 'history',       label: 'My Leaves',     icon: '≡', roles: ['employee', 'manager', 'admin'], group: 'more' },
+  { id: 'calendar',      label: 'Calendar',      icon: '▤', roles: ['employee', 'manager', 'admin'], group: 'more' },
+  { id: 'team',          label: 'Team',          icon: '⬡', roles: ['manager'],                      group: 'more' },
+  { id: 'jira',          label: 'Jira',          icon: '⟐', roles: ['employee', 'manager', 'admin'], group: 'more' },
 ]
 
 const TITLES = {
   notifications: 'Notifications', attendance: 'Attendance', timesheet: 'Timesheet',
   apply: 'Apply for leave', comp: 'Request comp off', history: 'My Leaves', calendar: 'Team Calendar',
-  approvals: 'Approvals', team: 'Team', admin: 'Admin Panel', jira: 'Jira', profile: 'My Profile',
+  approvals: 'Approvals', team: 'Team', admin: 'Employees', jira: 'Jira', profile: 'My Profile',
 }
 
 const MOBILE_PRIMARY = {
@@ -62,6 +67,7 @@ export default function App() {
   const [tab, setTab] = useState('dash')
   const [toast, setToast] = useState(null)
   const [hasUnread, setHasUnread] = useState(false)
+  const [pendingCount, setPendingCount] = useState(0)
   const [moreOpen, setMoreOpen] = useState(false)
 
   const showToast = (msg, type = 'success') => {
@@ -77,6 +83,15 @@ export default function App() {
       const seenAt = getNotifSeenAt()
       setHasUnread(feed.some(n => n.pinned || (n.date && new Date(n.date).getTime() > seenAt)))
     })
+    if (employee.role === 'admin' || employee.role === 'manager') {
+      Promise.all([
+        fetchPendingForApprover(employee.id), fetchPendingCompForApprover(employee.id),
+        fetchPendingTimesheets(employee.id), fetchPendingRegularizations(employee.id),
+      ]).then(res => {
+        if (cancelled) return
+        setPendingCount(res.reduce((n, r) => n + (r.data?.length || 0), 0))
+      })
+    }
     return () => { cancelled = true }
   }, [employee?.id])
 
@@ -96,6 +111,8 @@ export default function App() {
 
   const role = employee.role || 'employee'
   const nav = NAV_ALL.filter(n => n.roles.includes(role))
+  const mainNav = nav.filter(n => n.group === 'main')
+  const moreNav = nav.filter(n => n.group === 'more')
   const primaryIds = MOBILE_PRIMARY[role] || MOBILE_PRIMARY.employee
   const primary = nav.filter(n => primaryIds.includes(n.id))
   const secondary = nav.filter(n => !primaryIds.includes(n.id))
@@ -107,6 +124,18 @@ export default function App() {
   const title = isHome ? `${greeting()}, ${employee.full_name.split(' ')[0]}` : (TITLES[tab] || 'Home')
 
   const navBadge = (id) => (id === 'notifications' && hasUnread ? '•' : null)
+  const navCount = (id) => (id === 'approvals' && pendingCount > 0 ? pendingCount : null)
+
+  const navItem = (n) => (
+    <button key={n.id} onClick={() => goTab(n.id)} className={`sidebar-nav-item${tab === n.id ? ' active' : ''}`}>
+      <span className="sidebar-nav-icon">{n.icon}</span>
+      <span style={{ flex: 1 }}>{n.label}</span>
+      {navCount(n.id) != null && <span className="sidebar-nav-badge">{navCount(n.id)}</span>}
+      {navBadge(n.id) && (
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#c2882a', flexShrink: 0 }} />
+      )}
+    </button>
+  )
 
   return (
     <div className="app-shell">
@@ -127,16 +156,15 @@ export default function App() {
           </div>
         </div>
 
-        <nav className="sidebar-nav">
-          {nav.map(n => (
-            <button key={n.id} onClick={() => goTab(n.id)} className={`sidebar-nav-item${tab === n.id ? ' active' : ''}`}>
-              <span className="sidebar-nav-icon">{n.icon}</span>
-              <span style={{ flex: 1 }}>{n.label}</span>
-              {navBadge(n.id) && (
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#c2882a', flexShrink: 0 }} />
-              )}
-            </button>
-          ))}
+        <nav className="sidebar-nav" style={{ display: 'flex', flexDirection: 'column' }}>
+          {mainNav.map(navItem)}
+          {moreNav.length > 0 && (
+            <>
+              <div style={{ flex: 1, minHeight: 14 }} />
+              <div style={{ height: 1, background: 'var(--line)', margin: '0 14px 6px' }} />
+              {moreNav.map(navItem)}
+            </>
+          )}
         </nav>
 
         <div className="sidebar-foot">
