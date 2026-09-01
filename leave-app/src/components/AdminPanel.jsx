@@ -60,6 +60,7 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast, onReset, on
   const [compDone, setCompDone]         = useState(false)
   const [errs, setErrs]                 = useState({})
   const [saving, setSaving]             = useState(false)
+  const [activeTab, setActiveTab]       = useState('details')
   const [adminConfirmOpen, setAdminConfirmOpen] = useState(false)
 
   // Activity tab — leave/timesheet/attendance history, folded in from
@@ -306,6 +307,10 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast, onReset, on
   const toggleApprover = (id) => setSelAppr(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])
 
   const sec = { borderTop: `1px solid ${C.lineSoft}`, paddingTop: 20, marginTop: 22 }
+  const TABS = isEdit
+    ? [['details', 'Details'], ['salary', 'Salary'], ['leave', 'Leave'], ['approvers', 'Approvers'], ['activity', 'Activity']]
+    : [['details', 'Details'], ['salary', 'Salary'], ['approvers', 'Approvers']]
+  const tab = TABS.some(([id]) => id === activeTab) ? activeTab : 'details'
 
   return (
     <div style={{ ...card, padding: 0, overflow: 'hidden', maxWidth: 1080 }}>
@@ -322,8 +327,25 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast, onReset, on
         <button onClick={onBack} aria-label="Close" style={{ background: 'none', border: 'none', fontSize: 20, color: C.muted, cursor: 'pointer', lineHeight: 1, padding: 4 }}>×</button>
       </div>
 
-      <div style={{ padding: '20px 26px 24px' }}>
-        {/* Employment details */}
+      {/* Tabs */}
+      <div className="hscroll" style={{ display: 'flex', padding: '0 14px', borderBottom: `1px solid ${C.lineSoft}` }}>
+        {TABS.map(([id, label]) => (
+          <button key={id} onClick={() => setActiveTab(id)}
+            style={{
+              padding: '14px 16px', background: 'none', border: 'none', cursor: 'pointer',
+              fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', fontFamily: 'inherit',
+              color: tab === id ? C.navy : C.sub,
+              borderBottom: `2px solid ${tab === id ? C.navy : 'transparent'}`, marginBottom: -1,
+            }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ padding: '22px 26px 24px' }}>
+        {/* Details */}
+        {tab === 'details' && (
+        <div className="split-2" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 28, alignItems: 'start' }}>
         <div>
           <SecTitle>Employment details</SecTitle>
           <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
@@ -405,30 +427,41 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast, onReset, on
           )}
         </div>
 
-        {/* Leave & comp off balance */}
-        {isEdit && empBalance.length > 0 && (
-          <div style={sec}>
-            <SecTitle>Leave &amp; comp off balance</SecTitle>
-            <div style={{ ...card, padding: 0, overflow: 'hidden', maxWidth: 420 }}>
-              {empBalance.map((b, i) => (
-                <div key={b.type_code} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 64px 64px', gap: 10, alignItems: 'center', padding: '11px 14px', borderTop: i ? `1px solid ${C.rowLine}` : 'none' }}>
-                  <span style={{ fontSize: 12.5, color: C.body }}>{b.label}</span>
-                  <input value={b.used} readOnly tabIndex={-1} style={{ ...inputStyle(), textAlign: 'center', padding: '6px 4px', background: C.bgSec, color: C.muted }} />
-                  <input value={b.total} readOnly tabIndex={-1} style={{ ...inputStyle(), textAlign: 'center', padding: '6px 4px', background: C.bgSec, color: C.muted }} />
+        {/* Leave & comp off balance + save */}
+        <div>
+          {isEdit && empBalance.length > 0 && (
+            <>
+              <SecTitle>Leave &amp; comp off balance</SecTitle>
+              <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+                {empBalance.map((b, i) => (
+                  <div key={b.type_code} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 60px 60px', gap: 10, alignItems: 'center', padding: '11px 14px', borderTop: i ? `1px solid ${C.rowLine}` : 'none' }}>
+                    <span style={{ fontSize: 12.5, color: C.body }}>{b.label}</span>
+                    <input value={b.used} readOnly tabIndex={-1} style={{ ...inputStyle(), textAlign: 'center', padding: '7px 2px', background: C.bgSec, color: C.muted }} />
+                    <input value={b.total} readOnly tabIndex={-1} style={{ ...inputStyle(), textAlign: 'center', padding: '7px 2px', background: C.bgSec, color: C.muted }} />
+                  </div>
+                ))}
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 60px 60px', gap: 10, padding: '2px 14px 9px' }}>
+                  <span />
+                  <span style={{ fontSize: 9.5, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.faint, textAlign: 'center' }}>used</span>
+                  <span style={{ fontSize: 9.5, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.faint, textAlign: 'center' }}>total</span>
                 </div>
-              ))}
-              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 64px 64px', gap: 10, padding: '2px 14px 9px' }}>
-                <span />
-                <span style={{ fontSize: 9.5, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.faint, textAlign: 'center' }}>used</span>
-                <span style={{ fontSize: 9.5, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.faint, textAlign: 'center' }}>total</span>
               </div>
-            </div>
-            <div style={{ fontSize: 11, color: C.faint, marginTop: 8 }}>Change entitlement in Leave adjustments below.</div>
+              <div style={{ fontSize: 11, color: C.faint, margin: '8px 0 16px' }}>Change entitlement in the Leave tab.</div>
+            </>
+          )}
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <Btn disabled={saving} onClick={handleSaveClick} style={{ minWidth: 150 }}>
+              {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Add employee'}
+            </Btn>
+            <Btn variant="ghost" onClick={onBack}>Cancel</Btn>
           </div>
+        </div>
+        </div>
         )}
 
       {/* Salary */}
-      <div style={sec}>
+      {tab === 'salary' && (
+      <div>
           <SecTitle>Salary</SecTitle>
           <div style={{ ...card, background: C.bgSec, marginBottom: 16 }}>
             <div className="form-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
@@ -461,12 +494,18 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast, onReset, on
               Print / download payslip
             </Btn>
           )}
+          <div style={{ ...sec, display: 'flex', gap: 10 }}>
+            <Btn disabled={saving} onClick={handleSaveClick} style={{ minWidth: 150 }}>
+              {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Add employee'}
+            </Btn>
+            <Btn variant="ghost" onClick={onBack}>Cancel</Btn>
+          </div>
         </div>
+      )}
 
-      {/* Leave adjustments & records */}
-      {isEdit && (
-        <div style={sec}>
-          <SecTitle>Leave adjustments &amp; records</SecTitle>
+      {/* Leave */}
+      {tab === 'leave' && isEdit && (
+        <div>
           <div style={{ ...card, marginBottom: 16 }}>
             <SecTitle>Add leave record</SecTitle>
             <div style={{ fontSize: 12, color: C.sub, marginBottom: 12, lineHeight: 1.6 }}>
@@ -539,10 +578,8 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast, onReset, on
               </div>
             )
           })}
-        </div>
-      )}
-      {isEdit && (
-        <div style={sec}>
+
+          <div style={sec}>
           <SecTitle>Credit comp off</SecTitle>
           <div style={{ ...noteBox('purple'), marginBottom: 16 }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#4b3fb0', marginBottom: 4 }}>Manually credit comp off</div>
@@ -575,11 +612,13 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast, onReset, on
               <Btn full disabled={compSaving} onClick={saveCompOff}>{compSaving ? 'Saving…' : 'Credit comp off'}</Btn>
             </>
           )}
+          </div>
         </div>
       )}
 
       {/* Approvers */}
-      <div style={sec}>
+      {tab === 'approvers' && (
+      <div>
           <SecTitle>Approvers</SecTitle>
           <div style={{ fontSize: 13, color: C.sub, marginBottom: 14, lineHeight: 1.6 }}>
             Select up to 3 approvers for this employee's leave and comp off requests. Requests go to approver #1 first, then #2, then #3. If none selected, the reporting manager is used.
@@ -608,12 +647,18 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast, onReset, on
               {selectedApprovers.length} approver{selectedApprovers.length > 1 ? 's' : ''} — requests route to #1 first
             </div>
           )}
+          <div style={{ ...sec, display: 'flex', gap: 10 }}>
+            <Btn disabled={saving} onClick={handleSaveClick} style={{ minWidth: 150 }}>
+              {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Add employee'}
+            </Btn>
+            <Btn variant="ghost" onClick={onBack}>Cancel</Btn>
+          </div>
         </div>
+      )}
 
       {/* Activity — read-only history, folded in from Team */}
-      {isEdit && (
-        <div style={sec}>
-          <SecTitle style={{ marginBottom: 14 }}>Activity</SecTitle>
+      {tab === 'activity' && isEdit && (
+        <div>
           <SecTitle>Leave history</SecTitle>
           {activityLeaves.length === 0 ? <Empty text="No leave requests" /> :
             activityLeaves.map(l => (
@@ -715,13 +760,6 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast, onReset, on
           }
         </div>
       )}
-
-        <div style={{ ...sec, display: 'flex', gap: 10 }}>
-          <Btn disabled={saving} onClick={handleSaveClick} style={{ minWidth: 150 }}>
-            {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Add employee'}
-          </Btn>
-          <Btn variant="ghost" onClick={onBack}>Cancel</Btn>
-        </div>
       </div>
 
       {adminConfirmOpen && (
