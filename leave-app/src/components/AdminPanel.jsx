@@ -195,10 +195,12 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast, onReset, on
     if (empId) {
       await upsertSalary({ ...salForm, employee_id: empId })
       await setApprovers(empId, selectedApprovers)
-      // Save leave adjustments
-      for (const lt of leaveTypes.filter(t => !t.is_comp_off)) {
-        const adj = parseFloat(leaveAdj[lt.code]) || 0
-        if (adj !== 0 || leaveReasons[lt.code]) {
+      // Save leave / comp-off entitlement adjustments (edited either on the
+      // Details balance panel or the Leave tab — both bind to leaveAdj).
+      for (const lt of leaveTypes) {
+        const adj  = parseFloat(leaveAdj[lt.code]) || 0
+        const orig = parseFloat(origLeaveAdj[lt.code]) || 0
+        if (adj !== orig || leaveReasons[lt.code]) {
           await upsertLeaveAdjustment({
             employee_id: empId,
             type_code:   lt.code,
@@ -433,20 +435,31 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast, onReset, on
             <>
               <SecTitle>Leave &amp; comp off balance</SecTitle>
               <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
-                {empBalance.map((b, i) => (
-                  <div key={b.type_code} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 60px 60px', gap: 10, alignItems: 'center', padding: '11px 14px', borderTop: i ? `1px solid ${C.rowLine}` : 'none' }}>
-                    <span style={{ fontSize: 12.5, color: C.body }}>{b.label}</span>
-                    <input value={b.used} readOnly tabIndex={-1} style={{ ...inputStyle(), textAlign: 'center', padding: '7px 2px', background: C.bgSec, color: C.muted }} />
-                    <input value={b.total} readOnly tabIndex={-1} style={{ ...inputStyle(), textAlign: 'center', padding: '7px 2px', background: C.bgSec, color: C.muted }} />
-                  </div>
-                ))}
+                {empBalance.map((b, i) => {
+                  const base    = b.total - (parseFloat(origLeaveAdj[b.type_code]) || 0)
+                  const edited  = leaveAdj[b.type_code]
+                  const shown   = edited === undefined || edited === '' ? b.total : base + (parseFloat(edited) || 0)
+                  const changed = String(shown) !== String(b.total)
+                  return (
+                    <div key={b.type_code} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 60px 60px', gap: 10, alignItems: 'center', padding: '11px 14px', borderTop: i ? `1px solid ${C.rowLine}` : 'none' }}>
+                      <span style={{ fontSize: 12.5, color: C.body }}>{b.label}</span>
+                      <input value={b.used} readOnly tabIndex={-1} style={{ ...inputStyle(), textAlign: 'center', padding: '7px 2px', background: C.bgSec, color: C.muted }} />
+                      <input type="number" step="0.5" value={shown}
+                        onChange={e => {
+                          const v = e.target.value
+                          setLeaveAdj(a => ({ ...a, [b.type_code]: v === '' ? '' : String((parseFloat(v) || 0) - base) }))
+                        }}
+                        style={{ ...inputStyle(), textAlign: 'center', padding: '7px 2px', borderColor: changed ? C.navy : undefined }} />
+                    </div>
+                  )
+                })}
                 <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 60px 60px', gap: 10, padding: '2px 14px 9px' }}>
                   <span />
                   <span style={{ fontSize: 9.5, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.faint, textAlign: 'center' }}>used</span>
                   <span style={{ fontSize: 9.5, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.faint, textAlign: 'center' }}>total</span>
                 </div>
               </div>
-              <div style={{ fontSize: 11, color: C.faint, margin: '8px 0 16px' }}>Change entitlement in the Leave tab.</div>
+              <div style={{ fontSize: 11, color: C.faint, margin: '8px 0 16px' }}>Editing a total adjusts the employee's entitlement — applied on Save. Detailed adjustments with a note live in the Leave tab.</div>
             </>
           )}
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
