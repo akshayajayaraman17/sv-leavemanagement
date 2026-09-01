@@ -520,7 +520,7 @@ create policy "comp_read" on public.comp_off_requests for select using (
   or public.is_admin()
 );
 create policy "comp_insert" on public.comp_off_requests for insert with check (
-  employee_id = auth.uid()
+  employee_id = auth.uid() or public.is_admin()
 );
 create policy "comp_update" on public.comp_off_requests for update using (
   approver_id = auth.uid() or public.is_admin()
@@ -754,6 +754,72 @@ create trigger trg_comp_off_requests_approver
 create trigger trg_attendance_regularizations_approver
   before insert on public.attendance_regularizations
   for each row execute function public.enforce_approver_id();
+
+-- Comp off eligibility — the employee-facing ApplyCompOff form checks all
+-- of this client-side; enforce it in the database too so a direct
+-- PostgREST insert can't mint comp-off balance for an arbitrary date or
+-- hour count. Admin inserts (public.is_admin(), the "Credit comp off"
+-- flow) are skipped — those are deliberately backdated and hand-entered.
+create or replace function public.enforce_comp_off_eligibility()
+returns trigger language plpgsql as $$
+declare
+  att        public.attendance%rowtype;
+  is_weekend boolean;
+  is_holiday boolean;
+begin
+  if public.is_admin() then
+    return new;
+  end if;
+
+  new.status := 'pending';
+  new.decided_on := null;
+
+  if new.worked_date >= current_date then
+    raise exception 'Comp off can only be claimed for a day that has already passed';
+  end if;
+
+  is_weekend := extract(dow from new.worked_date) in (0, 6);
+  is_holiday := exists (
+    select 1 from public.company_holidays where holiday_date = new.worked_date
+  );
+  if not (is_weekend or is_holiday) then
+    raise exception 'Comp off requires a weekend or company holiday — % is a weekday', new.worked_date;
+  end if;
+
+  if exists (
+    select 1 from public.comp_off_requests
+    where employee_id = new.employee_id
+      and worked_date = new.worked_date
+      and status <> 'rejected'
+  ) then
+    raise exception 'A comp off request for % already exists', new.worked_date;
+  end if;
+
+  select * into att
+  from public.attendance
+  where employee_id = new.employee_id and date = new.worked_date;
+
+  if not found or att.check_in_time is null then
+    raise exception 'No check-in record found for %', new.worked_date;
+  end if;
+  if att.check_out_time is null then
+    raise exception 'No check-out record for % — both check-in and check-out are required', new.worked_date;
+  end if;
+  if coalesce(att.total_hours, 0) < 8 then
+    raise exception 'Only %h logged on % — a minimum of 8 hours is required',
+      round(coalesce(att.total_hours, 0)::numeric, 1), new.worked_date;
+  end if;
+
+  new.worked_hours := att.total_hours;
+  new.earned_days := 1;
+
+  return new;
+end;
+$$;
+
+create trigger trg_comp_off_requests_eligibility
+  before insert on public.comp_off_requests
+  for each row execute function public.enforce_comp_off_eligibility();
 
 -- Medical certificates: private bucket + RLS. The bucket is created
 -- non-public so uploaded certificates are only reachable via short-lived
