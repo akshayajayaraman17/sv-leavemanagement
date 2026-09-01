@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  fetchEmployees, createEmployee, updateEmployee, deactivateEmployee, reactivateEmployee, resetEmployeePassword,
+  fetchEmployees, createEmployee, updateEmployee, deactivateEmployee, reactivateEmployee, resetEmployeePassword, renumberEmployeeCodes,
   fetchSalary, upsertSalary, fetchApprovers, setApprovers,
   fetchLeaveTypes, fetchLeaveAdjustments, upsertLeaveAdjustment, grantCompOff, adminAddLeave,
   fetchLeaveBalance, fetchHolidays, createHoliday, deleteHoliday, fetchAuditLog,
@@ -208,6 +208,13 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast, onReset, on
       }
     }
 
+    // Keep EMP-NNN codes in joining-date order: a new hire changes the
+    // sequence, and so does editing an existing joining_date.
+    if (!isEdit || form.joining_date !== initial.joining_date) {
+      const { error } = await renumberEmployeeCodes()
+      if (error) onToast('Saved, but renumbering codes failed: ' + (error.message || error), 'error')
+    }
+
     setSaving(false)
     onToast(isEdit ? 'Employee updated' : 'Employee added successfully')
     onSave()
@@ -325,7 +332,9 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast, onReset, on
             </Field>
             <Field
               label="Employee code" error={errs.employee_code}
-              hint={isEdit ? 'Read-only after creation — kept stable for approvals, timesheets, and payroll references.' : undefined}
+              hint={isEdit
+                ? 'Codes are renumbered by joining date whenever a joining date changes.'
+                : 'Provisional — reassigned by joining-date order across the roster when you save.'}
             >
               <input value={form.employee_code} onChange={e => setForm(f => ({ ...f, employee_code: e.target.value }))} style={{ ...inputStyle(errs.employee_code), background: !isEdit ? C.bgSec : undefined }} placeholder="EMP-001" readOnly={!isEdit} />
             </Field>
@@ -1156,6 +1165,16 @@ export default function AdminPanel({ onToast }) {
 
   const [resetTarget, setResetTarget] = useState(null)
   const [resetting,   setResetting]   = useState(false)
+  const [renumbering, setRenumbering] = useState(false)
+
+  const runRenumber = async () => {
+    setRenumbering(true)
+    const { error } = await renumberEmployeeCodes()
+    setRenumbering(false)
+    if (error) { onToast('Renumber failed: ' + (error.message || error), 'error'); return }
+    onToast('Employee codes renumbered by joining date')
+    load()
+  }
 
   const handleResetPassword = async (password) => {
     setResetting(true)
@@ -1247,17 +1266,19 @@ export default function AdminPanel({ onToast }) {
       <BulkAddEmployees
         employees={employees}
         onBack={() => setView('list')}
-        onDone={() => { setView('list'); load() }}
+        onDone={async () => { await renumberEmployeeCodes(); setView('list'); load() }}
         onToast={onToast}
       />
     )
   }
 
-  const filtered = employees.filter(e =>
-    e.full_name.toLowerCase().includes(q.toLowerCase()) ||
-    e.email.toLowerCase().includes(q.toLowerCase()) ||
-    (e.employee_code || '').toLowerCase().includes(q.toLowerCase())
-  )
+  const filtered = employees
+    .filter(e =>
+      e.full_name.toLowerCase().includes(q.toLowerCase()) ||
+      e.email.toLowerCase().includes(q.toLowerCase()) ||
+      (e.employee_code || '').toLowerCase().includes(q.toLowerCase())
+    )
+    .sort((a, b) => (a.employee_code || '').localeCompare(b.employee_code || '', undefined, { numeric: true }))
 
   return (
     <div>
@@ -1289,6 +1310,9 @@ export default function AdminPanel({ onToast }) {
         </div>
         <div style={{ flex: 1 }} />
         <span style={{ fontFamily: C.mono, fontSize: 11.5, color: C.muted }}>{filtered.length} of {employees.length} shown</span>
+        <Btn variant="ghost" sm disabled={renumbering} onClick={runRenumber} style={{ whiteSpace: 'nowrap' }}>
+          {renumbering ? 'Renumbering…' : 'Renumber by join date'}
+        </Btn>
         <Btn variant="ghost" sm onClick={() => setView('bulk')} style={{ whiteSpace: 'nowrap' }}>Bulk add</Btn>
         <Btn sm onClick={() => setView('add')} style={{ whiteSpace: 'nowrap' }}>+ Add employee</Btn>
       </div>

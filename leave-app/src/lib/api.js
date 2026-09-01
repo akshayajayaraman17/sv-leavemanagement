@@ -71,6 +71,11 @@ export const createEmployee = (payload) => invokeAdminFn('create-employee', {
   manager_id: payload.manager_id || null,
 })
 
+// Reassign every EMP-NNN code in joining-date order. Admin-only, enforced
+// in the SECURITY DEFINER function. Call after adding a hire or changing an
+// existing joining_date so codes stay in seniority order.
+export const renumberEmployeeCodes = () => supabase.rpc('renumber_employee_codes')
+
 export const updateEmployee = async (id, updates) => {
   const { data, error } = await supabase
     .from('employees')
