@@ -7,8 +7,6 @@ import { Toast, C, Spinner, Avatar } from './components/UI'
 import { signOut } from './lib/api'
 import { fetchNotificationFeed, getNotifSeenAt } from './lib/notifications'
 
-// Tab content is lazy-loaded — only the shell + whichever tab is active
-// need to be in the initial bundle.
 const Dashboard     = lazy(() => import('./components/Dashboard'))
 const ApplyLeave    = lazy(() => import('./components/ApplyLeave').then(m => ({ default: m.ApplyLeave })))
 const ApplyCompOff  = lazy(() => import('./components/ApplyLeave').then(m => ({ default: m.ApplyCompOff })))
@@ -23,71 +21,54 @@ const Team          = lazy(() => import('./components/Team'))
 const Notifications = lazy(() => import('./components/Notifications'))
 const Calendar      = lazy(() => import('./components/Calendar'))
 
-const NAV = {
-  employee: [
-    { id: 'dash',       label: 'Home',       icon: '◉' },
-    { id: 'notifications', label: 'Notifications', icon: '🔔' },
-    { id: 'attendance', label: 'Attendance',  icon: '⏱' },
-    { id: 'timesheet',  label: 'Timesheet',   icon: '📋' },
-    { id: 'apply',      label: 'Apply',       icon: '+' },
-    { id: 'comp',       label: 'Comp Off',    icon: '◈' },
-    { id: 'history',    label: 'History',     icon: '≡' },
-    { id: 'calendar',   label: 'Calendar',    icon: '📅' },
-    { id: 'jira',       label: 'Jira',        icon: '🔗' },
-    { id: 'profile',    label: 'Profile',     icon: '👤' },
-  ],
-  manager: [
-    { id: 'dash',       label: 'Home',       icon: '◉' },
-    { id: 'notifications', label: 'Notifications', icon: '🔔' },
-    { id: 'attendance', label: 'Attendance',  icon: '⏱' },
-    { id: 'timesheet',  label: 'Timesheet',   icon: '📋' },
-    { id: 'apply',      label: 'Apply',       icon: '+' },
-    { id: 'comp',       label: 'Comp Off',    icon: '◈' },
-    { id: 'history',    label: 'History',     icon: '≡' },
-    { id: 'calendar',   label: 'Calendar',    icon: '📅' },
-    { id: 'approvals',  label: 'Approvals',   icon: '✓' },
-    { id: 'team',       label: 'Team',        icon: '👥' },
-    { id: 'jira',       label: 'Jira',        icon: '🔗' },
-    { id: 'profile',    label: 'Profile',     icon: '👤' },
-  ],
-  admin: [
-    { id: 'dash',       label: 'Home',       icon: '◉' },
-    { id: 'notifications', label: 'Notifications', icon: '🔔' },
-    { id: 'attendance', label: 'Attendance',  icon: '⏱' },
-    { id: 'timesheet',  label: 'Timesheet',   icon: '📋' },
-    { id: 'apply',      label: 'Apply',       icon: '+' },
-    { id: 'comp',       label: 'Comp Off',    icon: '◈' },
-    { id: 'history',    label: 'History',     icon: '≡' },
-    { id: 'calendar',   label: 'Calendar',    icon: '📅' },
-    { id: 'approvals',  label: 'Approvals',   icon: '✓' },
-    { id: 'admin',      label: 'Admin',       icon: '⚙' },
-    { id: 'jira',       label: 'Jira',        icon: '🔗' },
-    { id: 'profile',    label: 'Profile',     icon: '👤' },
-  ],
-}
+// icon = 14px-wide monochrome glyph, matching the mockup's muted nav marks
+const NAV_ALL = [
+  { id: 'dash',          label: 'Home',          icon: '◆', roles: ['employee', 'manager', 'admin'] },
+  { id: 'notifications', label: 'Notifications', icon: '◔', roles: ['employee', 'manager', 'admin'] },
+  { id: 'attendance',    label: 'Attendance',    icon: '◷', roles: ['employee', 'manager', 'admin'] },
+  { id: 'timesheet',     label: 'Timesheet',     icon: '▦', roles: ['employee', 'manager', 'admin'] },
+  { id: 'apply',         label: 'Apply',         icon: '＋', roles: ['employee', 'manager', 'admin'] },
+  { id: 'comp',          label: 'Comp Off',      icon: '◈', roles: ['employee', 'manager', 'admin'] },
+  { id: 'history',       label: 'My Leaves',     icon: '≡', roles: ['employee', 'manager', 'admin'] },
+  { id: 'calendar',      label: 'Calendar',      icon: '▤', roles: ['employee', 'manager', 'admin'] },
+  { id: 'approvals',     label: 'Approvals',     icon: '✓', roles: ['manager', 'admin'] },
+  { id: 'team',          label: 'Team',          icon: '⬡', roles: ['manager'] },
+  { id: 'admin',         label: 'Admin Panel',   icon: '⚙', roles: ['admin'] },
+  { id: 'jira',          label: 'Jira',          icon: '⟐', roles: ['employee', 'manager', 'admin'] },
+  { id: 'profile',       label: 'My Profile',    icon: '○', roles: ['employee', 'manager', 'admin'] },
+]
+
 const TITLES = {
-  dash: 'Dashboard', notifications: 'Notifications', attendance: 'Attendance', timesheet: 'Timesheet',
-  apply: 'Apply Leave', comp: 'Request Comp Off', history: 'My Leaves', calendar: 'Team Calendar',
+  notifications: 'Notifications', attendance: 'Attendance', timesheet: 'Timesheet',
+  apply: 'Apply for leave', comp: 'Request comp off', history: 'My Leaves', calendar: 'Team Calendar',
   approvals: 'Approvals', team: 'Team', admin: 'Admin Panel', jira: 'Jira', profile: 'My Profile',
+}
+
+const MOBILE_PRIMARY = {
+  employee: ['dash', 'attendance', 'apply', 'history'],
+  manager:  ['dash', 'approvals', 'attendance', 'apply'],
+  admin:    ['dash', 'approvals', 'attendance', 'admin'],
+}
+
+function greeting() {
+  const h = new Date().getHours()
+  if (h < 12) return 'Good morning'
+  if (h < 17) return 'Good afternoon'
+  return 'Good evening'
 }
 
 export default function App() {
   const { employee, loading, blockedMessage } = useAuth()
-  const [tab,   setTab]   = useState('dash')
+  const [tab, setTab] = useState('dash')
   const [toast, setToast] = useState(null)
   const [hasUnread, setHasUnread] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type })
     setTimeout(() => setToast(null), 3500)
   }
 
-  // Check once per session/employee whether anything's arrived since the
-  // last Notifications visit, to light up the bell icon before the user
-  // opens that tab. Re-checked whenever the employee changes; cleared
-  // immediately (optimistically) once the user opens the tab itself —
-  // Notifications.jsx advances the actual "seen" cursor once its own
-  // fetch resolves.
   useEffect(() => {
     if (!employee) return
     let cancelled = false
@@ -101,6 +82,7 @@ export default function App() {
 
   const goTab = (id) => {
     setTab(id)
+    setMoreOpen(false)
     if (id === 'notifications') setHasUnread(false)
   }
 
@@ -109,51 +91,71 @@ export default function App() {
       <Spinner />
     </div>
   )
-
   if (!employee) return <Login blockedMessage={blockedMessage} />
-
   if (employee.must_change_password) return <ForcePasswordChange employee={employee} />
 
-  const tabs = NAV[employee.role] || NAV.employee
+  const role = employee.role || 'employee'
+  const nav = NAV_ALL.filter(n => n.roles.includes(role))
+  const primaryIds = MOBILE_PRIMARY[role] || MOBILE_PRIMARY.employee
+  const primary = nav.filter(n => primaryIds.includes(n.id))
+  const secondary = nav.filter(n => !primaryIds.includes(n.id))
+
+  const isHome = tab === 'dash'
+  const eyebrow = isHome
+    ? new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+    : 'Leave Manager'
+  const title = isHome ? `${greeting()}, ${employee.full_name.split(' ')[0]}` : (TITLES[tab] || 'Home')
+
+  const navBadge = (id) => (id === 'notifications' && hasUnread ? '•' : null)
 
   return (
-    <div className="app-shell" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+    <div className="app-shell">
       <Toast msg={toast?.msg} type={toast?.type} onClose={() => setToast(null)} />
 
-      {/* ── Desktop Sidebar ── */}
+      {/* ── Sidebar (desktop) ── */}
       <aside className="app-sidebar">
         <div className="sidebar-brand">
-          <div style={{ fontSize: 9, color: C.textTert, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>Leave Manager</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Avatar initials={employee.avatar_initials} size={36} color={C.green} bg={C.greenBg} />
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 500, lineHeight: 1.2 }}>{employee.full_name}</div>
-              <div style={{ fontSize: 11, color: C.textSec }}>{employee.designation || employee.role}</div>
+          <div style={{
+            width: 30, height: 30, flex: 'none', borderRadius: 8, background: C.navy, color: '#fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: C.serif, fontSize: 16,
+          }}>L</div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: '-0.01em' }}>Leave Manager</div>
+            <div style={{ fontSize: 10.5, color: C.muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {employee.department || 'Strategic Ventures'}
             </div>
           </div>
         </div>
 
-        <nav style={{ flex: 1 }}>
-          {tabs.map(t => (
-            <button
-              key={t.id}
-              onClick={() => goTab(t.id)}
-              className={`sidebar-nav-item${tab === t.id ? ' active' : ''}`}
-              style={{ position: 'relative' }}
-            >
-              <span className="sidebar-nav-icon">{t.icon}</span>
-              {t.label}
-              {t.id === 'notifications' && hasUnread && (
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.red, marginLeft: 'auto' }} />
+        <nav className="sidebar-nav">
+          {nav.map(n => (
+            <button key={n.id} onClick={() => goTab(n.id)} className={`sidebar-nav-item${tab === n.id ? ' active' : ''}`}>
+              <span className="sidebar-nav-icon">{n.icon}</span>
+              <span style={{ flex: 1 }}>{n.label}</span>
+              {navBadge(n.id) && (
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#c2882a', flexShrink: 0 }} />
               )}
             </button>
           ))}
         </nav>
 
-        <div className="sidebar-signout">
+        <div className="sidebar-foot">
+          <button
+            onClick={() => goTab('profile')}
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: 10,
+              borderRadius: 9, background: '#e8eef6', border: 'none', cursor: 'pointer', textAlign: 'left',
+            }}
+          >
+            <Avatar initials={employee.avatar_initials} size={28} round />
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{employee.full_name}</div>
+              <div style={{ fontSize: 10.5, color: C.muted }}>{employee.designation || role}</div>
+            </div>
+          </button>
           <button
             onClick={() => signOut()}
-            style={{ fontSize: 12, color: C.textSec, background: C.bgSec, border: `0.5px solid ${C.border}`, borderRadius: 8, padding: '7px 14px', cursor: 'pointer', width: '100%' }}
+            style={{ width: '100%', marginTop: 8, fontSize: 12, color: C.sub, background: '#fff', border: `1px solid ${C.line}`, borderRadius: 8, padding: '7px 12px', cursor: 'pointer' }}
           >
             Sign out
           </button>
@@ -162,61 +164,104 @@ export default function App() {
 
       {/* ── Main column ── */}
       <div className="app-main">
-        {/* Top bar */}
-        <div className="app-topbar">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <header className="app-topbar">
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
             <div>
-              <div style={{ fontSize: 9, color: C.textTert, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Leave Manager</div>
-              <div style={{ fontSize: 17, fontWeight: 500 }}>{TITLES[tab]}</div>
+              <div className="topbar-eyebrow">{eyebrow}</div>
+              <h1 className="topbar-title">{title}</h1>
             </div>
-            {/* Sign out only visible on mobile (hidden on desktop via sidebar) */}
             <button
               onClick={() => signOut()}
               className="mobile-signout"
-              style={{ fontSize: 11, color: C.textSec, background: C.bgSec, border: `0.5px solid ${C.border}`, borderRadius: 8, padding: '5px 10px', cursor: 'pointer' }}
+              style={{ fontSize: 11.5, color: C.sub, background: '#fff', border: `1px solid ${C.line}`, borderRadius: 8, padding: '5px 10px', cursor: 'pointer', marginTop: 4 }}
             >
               Sign out
             </button>
           </div>
-        </div>
+        </header>
 
-        {/* Page content */}
         <div className="app-content">
           <div className="content-max">
             <ErrorBoundary key={tab}>
               <Suspense fallback={<Spinner />}>
-                {tab === 'dash'       && <Dashboard     employee={employee} onToast={showToast} onNavigate={goTab} />}
+                {tab === 'dash'          && <Dashboard     employee={employee} onToast={showToast} onNavigate={goTab} />}
                 {tab === 'notifications' && <Notifications employee={employee} onToast={showToast} />}
-                {tab === 'attendance' && <Attendance   employee={employee} onToast={showToast} />}
-                {tab === 'timesheet'  && <Timesheet    employee={employee} onToast={showToast} />}
-                {tab === 'apply'      && <ApplyLeave   employee={employee} onToast={showToast} />}
-                {tab === 'comp'       && <ApplyCompOff employee={employee} onToast={showToast} />}
-                {tab === 'history'    && <MyLeaves     employee={employee} onToast={showToast} />}
-                {tab === 'calendar'   && <Calendar     onToast={showToast} />}
-                {tab === 'approvals'  && <Approvals    employee={employee} onToast={showToast} />}
-                {tab === 'admin'      && <AdminPanel   onToast={showToast} />}
-                {tab === 'team'       && <Team          viewer={employee} onToast={showToast} />}
-                {tab === 'jira'       && <JiraSettings employee={employee} onToast={showToast} />}
-                {tab === 'profile'    && <Profile      employee={employee} onToast={showToast} />}
+                {tab === 'attendance'    && <Attendance    employee={employee} onToast={showToast} />}
+                {tab === 'timesheet'     && <Timesheet     employee={employee} onToast={showToast} />}
+                {tab === 'apply'         && <ApplyLeave    employee={employee} onToast={showToast} />}
+                {tab === 'comp'          && <ApplyCompOff  employee={employee} onToast={showToast} />}
+                {tab === 'history'       && <MyLeaves      employee={employee} onToast={showToast} />}
+                {tab === 'calendar'      && <Calendar      onToast={showToast} />}
+                {tab === 'approvals'     && <Approvals     employee={employee} onToast={showToast} />}
+                {tab === 'admin'         && <AdminPanel    onToast={showToast} />}
+                {tab === 'team'          && <Team          viewer={employee} onToast={showToast} />}
+                {tab === 'jira'          && <JiraSettings  employee={employee} onToast={showToast} />}
+                {tab === 'profile'       && <Profile       employee={employee} onToast={showToast} />}
               </Suspense>
             </ErrorBoundary>
           </div>
         </div>
 
-        {/* Mobile bottom nav */}
+        {/* ── Mobile bottom nav ── */}
+        {moreOpen && (
+          <div
+            onClick={() => setMoreOpen(false)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(16,24,40,0.42)', zIndex: 25 }}
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{
+                position: 'fixed', left: 0, right: 0, bottom: 0, background: '#fff',
+                borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: '10px 8px 20px',
+                zIndex: 26, maxWidth: 560, margin: '0 auto',
+              }}
+            >
+              <div style={{ width: 36, height: 4, borderRadius: 2, background: C.line, margin: '4px auto 10px' }} />
+              {secondary.map(n => (
+                <button
+                  key={n.id}
+                  onClick={() => goTab(n.id)}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
+                    background: tab === n.id ? C.navyBg : 'none', border: 'none', borderRadius: 10,
+                    cursor: 'pointer', fontFamily: 'inherit', fontSize: 14,
+                    color: tab === n.id ? C.navy : C.body, fontWeight: tab === n.id ? 600 : 400,
+                  }}
+                >
+                  <span style={{ width: 16, textAlign: 'center', color: C.faint }}>{n.icon}</span>
+                  {n.label}
+                  {navBadge(n.id) && <span style={{ marginLeft: 'auto', width: 6, height: 6, borderRadius: '50%', background: '#c2882a' }} />}
+                </button>
+              ))}
+              <button
+                onClick={() => signOut()}
+                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 14, color: C.red }}
+              >
+                <span style={{ width: 16, textAlign: 'center' }}>⎋</span>
+                Sign out
+              </button>
+            </div>
+          </div>
+        )}
+
         <nav className="app-bottomnav">
-          {tabs.map(t => {
-            const active = tab === t.id
+          {primary.map(n => {
+            const on = tab === n.id
             return (
-              <button key={t.id} onClick={() => goTab(t.id)} style={{ flex: 1, background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, padding: '4px 0', position: 'relative' }}>
-                <span style={{ fontSize: 15, color: active ? C.green : C.textTert }}>{t.icon}</span>
-                <span style={{ fontSize: 9, fontWeight: active ? 500 : 400, color: active ? C.green : C.textTert }}>{t.label}</span>
-                {t.id === 'notifications' && hasUnread && (
-                  <span style={{ position: 'absolute', top: 2, right: '30%', width: 6, height: 6, borderRadius: '50%', background: C.red }} />
-                )}
+              <button key={n.id} onClick={() => goTab(n.id)} className="bottomnav-item">
+                <span style={{ fontSize: 15, color: on ? C.navy : C.faint }}>{n.icon}</span>
+                <span style={{ fontSize: 9.5, fontWeight: on ? 600 : 400, color: on ? C.navy : C.muted }}>{n.label}</span>
+                {navBadge(n.id) && <span style={{ position: 'absolute', top: 2, right: '28%', width: 6, height: 6, borderRadius: '50%', background: '#c2882a' }} />}
               </button>
             )
           })}
+          <button onClick={() => setMoreOpen(v => !v)} className="bottomnav-item">
+            <span style={{ fontSize: 15, color: moreOpen ? C.navy : C.faint }}>•••</span>
+            <span style={{ fontSize: 9.5, color: moreOpen ? C.navy : C.muted }}>More</span>
+            {!moreOpen && secondary.some(n => navBadge(n.id)) && (
+              <span style={{ position: 'absolute', top: 2, right: '28%', width: 6, height: 6, borderRadius: '50%', background: '#c2882a' }} />
+            )}
+          </button>
         </nav>
       </div>
     </div>

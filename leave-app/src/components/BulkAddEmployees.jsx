@@ -3,7 +3,7 @@ import { createEmployee } from '../lib/api'
 import { parseCsv, rowsToCsv, downloadCsv } from '../lib/csv'
 import { generateTempPassword } from '../lib/password'
 import { generateEmpCode } from '../lib/employeeCode'
-import { C, btnStyle, card, inputStyle } from './UI'
+import { Btn, C, card, inputStyle } from './UI'
 
 const VALID_ROLES = ['admin', 'manager', 'employee']
 const today = new Date().toISOString().split('T')[0]
@@ -103,6 +103,9 @@ function validateRows(rawRows, existingEmployees) {
   })
 }
 
+const th = { padding: '9px 10px', fontWeight: 600, color: C.muted, whiteSpace: 'nowrap', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.08em' }
+const td = { padding: '9px 10px', fontSize: 12, verticalAlign: 'top' }
+
 export default function BulkAddEmployees({ employees, onBack, onDone, onToast }) {
   const [step,      setStep]      = useState('upload') // 'upload' | 'preview' | 'results'
   const [rows,       setRows]      = useState([])
@@ -190,14 +193,16 @@ export default function BulkAddEmployees({ employees, onBack, onDone, onToast })
 
   return (
     <div>
-      <button onClick={onBack} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '6px 14px', fontSize: 12, marginBottom: 16 }}>‹ Back</button>
-      <div style={{ fontSize: 17, fontWeight: 500, marginBottom: 16 }}>Bulk Add Employees</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+        <Btn variant="ghost" sm onClick={onBack}>‹ Back</Btn>
+        <div style={{ fontFamily: C.serif, fontSize: 21 }}>Bulk add employees</div>
+      </div>
 
       {step === 'upload' && (
         <div>
           <div style={{ ...card, background: C.bgSec, marginBottom: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>How it works</div>
-            <div style={{ fontSize: 12, color: C.textSec, lineHeight: 1.6 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>How it works</div>
+            <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.6 }}>
               Upload a CSV of new hires. Only <strong>full_name</strong> and <strong>email</strong> are required —
               employee code auto-generates if left blank, and role/joining date default sensibly.
               <strong> date_of_birth</strong> is optional (YYYY-MM-DD) — set it to have that person show up in the
@@ -207,24 +212,21 @@ export default function BulkAddEmployees({ employees, onBack, onDone, onToast })
             </div>
           </div>
 
-          <button onClick={downloadTemplate} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '8px 14px', fontSize: 12, marginBottom: 20 }}>
-            ⬇ Download CSV Template
-          </button>
+          <Btn variant="ghost" sm style={{ marginBottom: 20 }} onClick={downloadTemplate}>Download CSV template</Btn>
 
           <div
             role="button" tabIndex={0}
             style={{
-              border: `1.5px dashed ${C.borderMed}`, borderRadius: 8, padding: '24px 12px',
-              background: C.bg, cursor: 'pointer', textAlign: 'center',
+              border: `1.5px dashed ${C.borderMed}`, borderRadius: 10, padding: '26px 12px',
+              background: C.bgSec, cursor: 'pointer', textAlign: 'center',
             }}
             onClick={() => document.getElementById('bulk-csv-upload').click()}
             onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); document.getElementById('bulk-csv-upload').click() } }}
           >
-            <div style={{ fontSize: 22, marginBottom: 6 }}>📄</div>
-            <div style={{ fontSize: 13, color: C.textSec, fontWeight: 500 }}>
+            <div style={{ fontSize: 13, color: C.sub, fontWeight: 500 }}>
               {fileName || 'Click to upload a CSV file'}
             </div>
-            <div style={{ fontSize: 11, color: C.textTert, marginTop: 3 }}>Uses the template columns above</div>
+            <div style={{ fontSize: 11, color: C.faint, marginTop: 3 }}>Uses the template columns above</div>
           </div>
           <input
             id="bulk-csv-upload"
@@ -239,37 +241,38 @@ export default function BulkAddEmployees({ employees, onBack, onDone, onToast })
       {step === 'preview' && (
         <div>
           <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-            <div style={{ ...card, flex: 1, minWidth: 140, textAlign: 'center', background: C.greenBg }}>
-              <div style={{ fontSize: 20, fontWeight: 600, color: C.green }}>{readyRows.length}</div>
-              <div style={{ fontSize: 11, color: '#0F6E56' }}>ready to create</div>
+            <div style={{ ...card, flex: 1, minWidth: 140, textAlign: 'center', background: C.greenBg, border: `1px solid ${C.greenLine}` }}>
+              <div style={{ fontFamily: C.serif, fontSize: 24, color: '#1f7350' }}>{readyRows.length}</div>
+              <div style={{ fontSize: 11, color: '#1f7350' }}>ready to create</div>
             </div>
-            <div style={{ ...card, flex: 1, minWidth: 140, textAlign: 'center', background: rows.length - readyRows.length > 0 ? C.redBg : C.bgSec }}>
-              <div style={{ fontSize: 20, fontWeight: 600, color: rows.length - readyRows.length > 0 ? C.red : C.textSec }}>
-                {rows.length - readyRows.length}
-              </div>
-              <div style={{ fontSize: 11, color: rows.length - readyRows.length > 0 ? C.red : C.textTert }}>will be skipped</div>
-            </div>
+            {(() => {
+              const skipped = rows.length - readyRows.length
+              return (
+                <div style={{ ...card, flex: 1, minWidth: 140, textAlign: 'center', background: skipped > 0 ? C.redBg : C.bgSec, border: `1px solid ${skipped > 0 ? C.redLine : C.line}` }}>
+                  <div style={{ fontFamily: C.serif, fontSize: 24, color: skipped > 0 ? C.red : C.muted }}>{skipped}</div>
+                  <div style={{ fontSize: 11, color: skipped > 0 ? C.red : C.faint }}>will be skipped</div>
+                </div>
+              )
+            })()}
           </div>
 
           <div style={{ ...card, padding: 0, overflow: 'hidden', marginBottom: 16 }}>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <div className="hscroll">
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ background: C.bgSec, textAlign: 'left' }}>
-                    {['Row', 'Name', 'Email', 'Code', 'Role', 'Status'].map(h => (
-                      <th key={h} style={{ padding: '8px 10px', fontWeight: 600, color: C.textSec, whiteSpace: 'nowrap' }}>{h}</th>
-                    ))}
+                    {['Row', 'Name', 'Email', 'Code', 'Role', 'Status'].map(h => <th key={h} style={th}>{h}</th>)}
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map(r => (
-                    <tr key={r.rowNum} style={{ borderTop: `0.5px solid ${C.border}` }}>
-                      <td style={{ padding: '8px 10px', color: C.textTert }}>{r.rowNum}</td>
-                      <td style={{ padding: '8px 10px' }}>{r.full_name || '—'}</td>
-                      <td style={{ padding: '8px 10px' }}>{r.email || '—'}</td>
-                      <td style={{ padding: '8px 10px' }}>{r.employee_code}</td>
-                      <td style={{ padding: '8px 10px', textTransform: 'capitalize' }}>{r.role}</td>
-                      <td style={{ padding: '8px 10px' }}>
+                    <tr key={r.rowNum} style={{ borderTop: `1px solid ${C.rowLine}` }}>
+                      <td style={{ ...td, color: C.faint, fontFamily: C.mono }}>{r.rowNum}</td>
+                      <td style={td}>{r.full_name || '—'}</td>
+                      <td style={td}>{r.email || '—'}</td>
+                      <td style={{ ...td, fontFamily: C.mono }}>{r.employee_code}</td>
+                      <td style={{ ...td, textTransform: 'capitalize' }}>{r.role}</td>
+                      <td style={td}>
                         {r.errors.length > 0 ? (
                           <span style={{ color: C.red }}>✗ {r.errors.join('; ')}</span>
                         ) : r.warnings.length > 0 ? (
@@ -286,19 +289,19 @@ export default function BulkAddEmployees({ employees, onBack, onDone, onToast })
           </div>
 
           <div style={{ ...card, marginBottom: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>Initial password</div>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Initial password</div>
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 10, cursor: 'pointer' }}>
               <input type="radio" checked={passwordMode === 'random'} onChange={() => setPasswordMode('random')} style={{ marginTop: 3 }} />
               <div>
-                <div style={{ fontSize: 13 }}>Random per employee <span style={{ color: C.textTert, fontWeight: 400 }}>(recommended)</span></div>
-                <div style={{ fontSize: 11, color: C.textTert }}>Each employee gets their own generated password — no shared secret.</div>
+                <div style={{ fontSize: 13 }}>Random per employee <span style={{ color: C.faint, fontWeight: 400 }}>(recommended)</span></div>
+                <div style={{ fontSize: 11, color: C.faint }}>Each employee gets their own generated password — no shared secret.</div>
               </div>
             </label>
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
               <input type="radio" checked={passwordMode === 'shared'} onChange={() => setPasswordMode('shared')} style={{ marginTop: 3 }} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13 }}>Same password for everyone</div>
-                <div style={{ fontSize: 11, color: C.textTert, marginBottom: passwordMode === 'shared' ? 8 : 0 }}>
+                <div style={{ fontSize: 11, color: C.faint, marginBottom: passwordMode === 'shared' ? 8 : 0 }}>
                   Anyone who knows it can sign in as any of these employees until they change it — each one is
                   required to set their own password immediately on first login.
                 </div>
@@ -315,34 +318,32 @@ export default function BulkAddEmployees({ employees, onBack, onDone, onToast })
           </div>
 
           {creating && (
-            <div style={{ fontSize: 12, color: C.textSec, marginBottom: 10 }}>
+            <div style={{ fontSize: 12, color: C.sub, marginBottom: 10 }}>
               Creating {progress.done} of {progress.total}…
             </div>
           )}
 
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => setStep('upload')} disabled={creating} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '9px 16px', fontSize: 13 }}>
-              ‹ Choose different file
-            </button>
-            <button
-              onClick={doCreate}
-              disabled={creating || !canCreate}
-              style={{ ...btnStyle(C.green, '#fff'), flex: 1, opacity: (creating || !canCreate) ? 0.6 : 1 }}
-            >
-              {creating ? 'Creating…' : `Create ${readyRows.length} Employee${readyRows.length !== 1 ? 's' : ''}`}
-            </button>
+            <Btn variant="ghost" disabled={creating} onClick={() => setStep('upload')}>‹ Choose different file</Btn>
+            <Btn full disabled={creating || !canCreate} onClick={doCreate}>
+              {creating ? 'Creating…' : `Create ${readyRows.length} employee${readyRows.length !== 1 ? 's' : ''}`}
+            </Btn>
           </div>
         </div>
       )}
 
       {step === 'results' && (
         <div>
-          <div style={{ ...card, background: createdCount > 0 ? C.greenBg : C.redBg, marginBottom: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 500, color: createdCount > 0 ? '#0F6E56' : C.red, marginBottom: 4 }}>
+          <div style={{
+            ...card, marginBottom: 16,
+            background: createdCount > 0 ? C.greenBg : C.redBg,
+            border: `1px solid ${createdCount > 0 ? C.greenLine : C.redLine}`,
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: createdCount > 0 ? '#1f7350' : C.red, marginBottom: 4 }}>
               {createdCount} created{failedCount > 0 ? `, ${failedCount} failed` : ''}
             </div>
             {createdCount > 0 && (
-              <div style={{ fontSize: 12, color: createdCount > 0 ? '#0F6E56' : C.red, lineHeight: 1.6 }}>
+              <div style={{ fontSize: 12, color: '#1f7350', lineHeight: 1.6 }}>
                 These passwords are shown only once — export or copy them now and share each one securely
                 with the employee it belongs to.
               </div>
@@ -350,41 +351,37 @@ export default function BulkAddEmployees({ employees, onBack, onDone, onToast })
           </div>
 
           {createdCount > 0 && (
-            <button onClick={exportResults} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '8px 14px', fontSize: 12, marginBottom: 16 }}>
-              ⬇ Export Credentials CSV
-            </button>
+            <Btn variant="ghost" sm style={{ marginBottom: 16 }} onClick={exportResults}>Export credentials CSV</Btn>
           )}
 
           <div style={{ ...card, padding: 0, overflow: 'hidden', marginBottom: 16 }}>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <div className="hscroll">
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ background: C.bgSec, textAlign: 'left' }}>
-                    {['Name', 'Email', 'Code', 'Temporary Password', 'Status'].map(h => (
-                      <th key={h} style={{ padding: '8px 10px', fontWeight: 600, color: C.textSec, whiteSpace: 'nowrap' }}>{h}</th>
-                    ))}
+                    {['Name', 'Email', 'Code', 'Temporary password', 'Status'].map(h => <th key={h} style={th}>{h}</th>)}
                   </tr>
                 </thead>
                 <tbody>
                   {results.map(r => (
-                    <tr key={r.email} style={{ borderTop: `0.5px solid ${C.border}` }}>
-                      <td style={{ padding: '8px 10px' }}>{r.full_name}</td>
-                      <td style={{ padding: '8px 10px' }}>{r.email}</td>
-                      <td style={{ padding: '8px 10px' }}>{r.employee_code}</td>
-                      <td style={{ padding: '8px 10px', fontFamily: 'ui-monospace, monospace' }}>
+                    <tr key={r.email} style={{ borderTop: `1px solid ${C.rowLine}` }}>
+                      <td style={td}>{r.full_name}</td>
+                      <td style={td}>{r.email}</td>
+                      <td style={{ ...td, fontFamily: C.mono }}>{r.employee_code}</td>
+                      <td style={{ ...td, fontFamily: C.mono }}>
                         {r.status === 'created' ? (
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span>{revealed.has(r.email) ? r.tempPassword : '••••••••'}</span>
                             <button onClick={() => toggleReveal(r.email)} style={{ background: 'none', border: 'none', color: C.blue, cursor: 'pointer', fontSize: 11, fontWeight: 500, padding: 0 }}>
                               {revealed.has(r.email) ? 'Hide' : 'Reveal'}
                             </button>
-                            <button onClick={() => copyPassword(r.tempPassword)} style={{ background: 'none', border: 'none', color: C.textSec, cursor: 'pointer', fontSize: 11, fontWeight: 500, padding: 0 }}>
+                            <button onClick={() => copyPassword(r.tempPassword)} style={{ background: 'none', border: 'none', color: C.sub, cursor: 'pointer', fontSize: 11, fontWeight: 500, padding: 0 }}>
                               Copy
                             </button>
                           </div>
                         ) : '—'}
                       </td>
-                      <td style={{ padding: '8px 10px' }}>
+                      <td style={td}>
                         {r.status === 'created'
                           ? <span style={{ color: C.green }}>✓ Created</span>
                           : <span style={{ color: C.red }}>✗ {r.error || 'Failed'}</span>}
@@ -396,7 +393,7 @@ export default function BulkAddEmployees({ employees, onBack, onDone, onToast })
             </div>
           </div>
 
-          <button onClick={onDone} style={{ ...btnStyle(C.green, '#fff'), width: '100%' }}>Done</button>
+          <Btn full onClick={onDone}>Done</Btn>
         </div>
       )}
     </div>

@@ -12,12 +12,21 @@ import { rowsToCsv, downloadCsv, parseCsv } from '../lib/csv'
 import { printPayslip } from '../lib/payslip'
 import { generateEmpCode } from '../lib/employeeCode'
 import BulkAddEmployees from './BulkAddEmployees'
-import { Avatar, Badge, C, Confirm, Empty, Field, OffboardModal, ResetPasswordModal, SecTitle, Spinner, btnStyle, card, inputStyle, formatDate } from './UI'
+import {
+  Avatar, Badge, Btn, C, Confirm, Empty, Field, Modal, Mono, OffboardModal, Panel,
+  ProgressBar, ResetPasswordModal, SecTitle, Segmented, Spinner, Tabs, card, inputStyle, formatDate,
+} from './UI'
 
 const ROLES = { admin: 'Admin', manager: 'Manager', employee: 'Employee' }
 const DEPTS = ['Engineering', 'HR', 'Finance', 'Sales', 'Operations', 'Marketing', 'Design', 'Product']
 const REGIONS = ['India', 'United States', 'United Kingdom']
 const today = new Date().toISOString().split('T')[0]
+
+const noteBox = (tone) => ({
+  ...card,
+  background: tone === 'amber' ? C.amberBg : tone === 'purple' ? C.purpleBg : C.bgSec,
+  border: `1px solid ${tone === 'amber' ? C.amberLine : tone === 'purple' ? C.purpleLine : C.line}`,
+})
 
 // ── Add/Edit Employee Form ────────────────────────────────────────────────────
 
@@ -293,52 +302,52 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
 
   const toggleApprover = (id) => setSelAppr(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])
 
-  const TB = ({ id, label }) => (
-    <button onClick={() => setActiveTab(id)} style={{ padding: '7px 14px', fontSize: 12, fontWeight: 500, borderRadius: 20, border: 'none', cursor: 'pointer', background: activeTab === id ? C.green : C.bgSec, color: activeTab === id ? '#fff' : C.textSec }}>
-      {label}
-    </button>
-  )
+  const tabItems = [
+    { id: 'details', label: 'Details' },
+    { id: 'salary', label: 'Salary' },
+    { id: 'approvers', label: 'Approvers' },
+    ...(isEdit ? [
+      { id: 'leave', label: 'Leave' },
+      { id: 'comp', label: 'Comp off' },
+      { id: 'activity', label: 'Activity' },
+    ] : []),
+  ]
 
   return (
     <div>
-      <button onClick={onBack} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '6px 14px', fontSize: 12, marginBottom: 16 }}>‹ Back</button>
-      <div style={{ fontSize: 17, fontWeight: 500, marginBottom: 16 }}>{isEdit ? `Edit ${initial.full_name}` : 'Add New Employee'}</div>
-
-      <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
-        <TB id="details"   label="Details" />
-        <TB id="salary"    label="Salary" />
-        <TB id="approvers" label="Approvers" />
-        {isEdit && <TB id="leave" label="Leave" />}
-        {isEdit && <TB id="comp" label="Comp Off" />}
-        {isEdit && <TB id="activity" label="Activity" />}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+        <Btn variant="ghost" sm onClick={onBack}>‹ Back</Btn>
+        <div style={{ fontFamily: C.serif, fontSize: 21 }}>{isEdit ? `Edit ${initial.full_name}` : 'Add new employee'}</div>
       </div>
+
+      <Tabs items={tabItems} value={activeTab} onChange={setActiveTab} />
 
       {/* Details tab */}
       {activeTab === 'details' && (
         <div>
-          <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Field label="Full Name" error={errs.full_name}>
+          <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
+            <Field label="Full name" error={errs.full_name}>
               <input value={form.full_name} onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))} style={inputStyle(errs.full_name)} placeholder="Jane Smith" />
             </Field>
             <Field
-              label="Employee Code" error={errs.employee_code}
+              label="Employee code" error={errs.employee_code}
               hint={isEdit ? 'Read-only after creation — kept stable for approvals, timesheets, and payroll references.' : undefined}
             >
               <input value={form.employee_code} onChange={e => setForm(f => ({ ...f, employee_code: e.target.value }))} style={{ ...inputStyle(errs.employee_code), background: !isEdit ? C.bgSec : undefined }} placeholder="EMP-001" readOnly={!isEdit} />
             </Field>
           </div>
-          <Field label="Work Email" error={errs.email}>
+          <Field label="Work email" error={errs.email}>
             <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} style={inputStyle(errs.email)} placeholder="jane@company.com" disabled={isEdit} />
           </Field>
           {!isEdit && (
-            <Field label="Temporary Password" error={errs.password} hint="They'll be required to set their own password on first login.">
+            <Field label="Temporary password" error={errs.password} hint="They'll be required to set their own password on first login.">
               <input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} style={inputStyle(errs.password)} placeholder="Min 8 characters" />
             </Field>
           )}
           <Field label="Phone">
             <input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} style={inputStyle()} placeholder="+91 98765 43210" />
           </Field>
-          <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
             <Field label="Department">
               <select value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))} style={inputStyle()}>
                 <option value="">— Select —</option>
@@ -355,17 +364,17 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
               {REGIONS.map(r => <option key={r}>{r}</option>)}
             </select>
           </Field>
-          <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
             <Field label="Role">
               <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} style={inputStyle()}>
                 {Object.entries(ROLES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
             </Field>
-            <Field label="Date of Joining" error={errs.joining_date}>
+            <Field label="Date of joining" error={errs.joining_date}>
               <input type="date" value={form.joining_date} onChange={e => setForm(f => ({ ...f, joining_date: e.target.value }))} style={inputStyle(errs.joining_date)} />
             </Field>
           </div>
-          <Field label="Reporting Manager">
+          <Field label="Reporting manager">
             <select value={form.manager_id} onChange={e => setForm(f => ({ ...f, manager_id: e.target.value }))} style={inputStyle()}>
               <option value="">— No manager —</option>
               {employees.filter(e => e.id !== initial?.id && e.role !== 'employee').map(e => (
@@ -379,44 +388,36 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
       {/* Salary tab */}
       {activeTab === 'salary' && (
         <div>
-          <div style={{ ...card, background: '#E1F5EE', border: `0.5px solid #9FE1CB`, marginBottom: 16 }}>
+          <div style={{ ...card, background: C.bgSec, marginBottom: 16 }}>
             <div className="form-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 10, color: '#085041' }}>Gross</div>
-                <div style={{ fontSize: 18, fontWeight: 500, color: C.green }}>₹{gross.toLocaleString('en-IN')}</div>
-              </div>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 10, color: '#085041' }}>Deductions</div>
-                <div style={{ fontSize: 18, fontWeight: 500, color: C.red }}>₹{deductions.toLocaleString('en-IN')}</div>
-              </div>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 10, color: '#085041' }}>Net</div>
-                <div style={{ fontSize: 18, fontWeight: 500, color: C.green }}>₹{net.toLocaleString('en-IN')}</div>
-              </div>
+              {[['Gross', gross, C.ink], ['Deductions', deductions, C.red], ['Net', net, C.navy]].map(([label, val, color]) => (
+                <div key={label} style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 10.5, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</div>
+                  <div style={{ fontFamily: C.serif, fontSize: 20, color, marginTop: 3 }}>₹{val.toLocaleString('en-IN')}</div>
+                </div>
+              ))}
             </div>
           </div>
           <SecTitle>Earnings</SecTitle>
-          {[['basic_salary','Basic Salary'],['hra','HRA'],['transport_allowance','Transport Allowance'],['other_allowances','Other Allowances']].map(([k, label]) => (
+          {[['basic_salary','Basic salary'],['hra','HRA'],['transport_allowance','Transport allowance'],['other_allowances','Other allowances']].map(([k, label]) => (
             <Field key={k} label={label}>
               <input type="number" min={0} value={salForm[k]} onChange={e => setSalForm(f => ({ ...f, [k]: e.target.value }))} style={inputStyle()} placeholder="0" />
             </Field>
           ))}
           <SecTitle style={{ marginTop: 8 }}>Deductions</SecTitle>
-          {[['pf_deduction','PF Deduction'],['tax_deduction','Tax (TDS)'],['other_deductions','Other Deductions']].map(([k, label]) => (
+          {[['pf_deduction','PF deduction'],['tax_deduction','Tax (TDS)'],['other_deductions','Other deductions']].map(([k, label]) => (
             <Field key={k} label={label}>
               <input type="number" min={0} value={salForm[k]} onChange={e => setSalForm(f => ({ ...f, [k]: e.target.value }))} style={inputStyle()} placeholder="0" />
             </Field>
           ))}
-          <Field label="Effective From">
+          <Field label="Effective from">
             <input type="date" value={salForm.effective_from} onChange={e => setSalForm(f => ({ ...f, effective_from: e.target.value }))} style={inputStyle()} />
           </Field>
           {isEdit && (
-            <button
-              onClick={() => printPayslip({ employee: { ...initial, ...form }, salary: salForm })}
-              style={{ ...btnStyle(C.bgSec, C.textSec), padding: '8px 14px', fontSize: 12, marginTop: 4 }}
-            >
-              🖨 Print / Download Payslip
-            </button>
+            <Btn variant="ghost" sm style={{ marginTop: 4 }}
+              onClick={() => printPayslip({ employee: { ...initial, ...form }, salary: salForm })}>
+              Print / download payslip
+            </Btn>
           )}
         </div>
       )}
@@ -426,21 +427,19 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
         <div>
           {empBalance.length > 0 && (
             <>
-              <SecTitle>Current Leave Balance — {new Date().getFullYear()}</SecTitle>
+              <SecTitle>Current leave balance — {new Date().getFullYear()}</SecTitle>
               <div className="balance-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
                 {empBalance.map(b => {
                   const pct = b.total > 0 ? Math.round((b.used / b.total) * 100) : 0
                   return (
                     <div key={b.type_code} style={card}>
-                      <div style={{ fontSize: 11, color: C.textSec, marginBottom: 4 }}>{b.label}</div>
-                      <div style={{ fontSize: 28, fontWeight: 500, color: b.color, lineHeight: 1 }}>{b.remaining}</div>
-                      <div style={{ fontSize: 10, color: C.textTert, marginBottom: 9 }}>of {b.total} remaining</div>
-                      <div style={{ background: C.bgSec, borderRadius: 4, height: 3 }}>
-                        <div style={{ width: `${pct}%`, height: '100%', background: b.color, borderRadius: 4 }} />
-                      </div>
+                      <div style={{ fontSize: 11.5, color: C.sub, marginBottom: 4 }}>{b.label}</div>
+                      <div style={{ fontFamily: C.serif, fontSize: 28, color: b.color || C.ink, lineHeight: 1 }}>{b.remaining}</div>
+                      <div style={{ fontSize: 10.5, color: C.faint, marginBottom: 9 }}>of {b.total} remaining</div>
+                      <ProgressBar pct={pct} color={b.color || '#3a76ad'} />
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5 }}>
-                        <span style={{ fontSize: 10, color: C.textTert }}>{b.used} used</span>
-                        {b.type_code === 'comp' && <span style={{ fontSize: 10, color: b.color }}>{b.total} earned</span>}
+                        <span style={{ fontSize: 10.5, color: C.faint }}>{b.used} used</span>
+                        {b.type_code === 'comp' && <span style={{ fontSize: 10.5, color: b.color }}>{b.total} earned</span>}
                       </div>
                     </div>
                   )
@@ -449,16 +448,16 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
             </>
           )}
           <div style={{ ...card, marginBottom: 16 }}>
-            <SecTitle>Add Leave Record</SecTitle>
-            <div style={{ fontSize: 12, color: C.textSec, marginBottom: 12, lineHeight: 1.6 }}>
+            <SecTitle>Add leave record</SecTitle>
+            <div style={{ fontSize: 12, color: C.sub, marginBottom: 12, lineHeight: 1.6 }}>
               Records an already-approved leave directly — for backdating or regularizing something the employee never applied for. Deducts from their balance immediately.
             </div>
-            <Field label="Leave Type">
+            <Field label="Leave type">
               <select value={addLeaveForm.type} onChange={e => setAddLeaveForm(f => ({ ...f, type: e.target.value }))} style={inputStyle()}>
                 {leaveTypes.filter(lt => !lt.is_comp_off).map(lt => <option key={lt.code} value={lt.code}>{lt.label}</option>)}
               </select>
             </Field>
-            <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
               <Field label="From" error={addLeaveErrs.from}>
                 <input type="date" value={addLeaveForm.from} onChange={e => setAddLeaveForm(f => ({ ...f, from: e.target.value }))} style={inputStyle(addLeaveErrs.from)} />
               </Field>
@@ -470,21 +469,17 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
               <input value={addLeaveForm.reason} onChange={e => setAddLeaveForm(f => ({ ...f, reason: e.target.value }))} placeholder="e.g. Regularizing unplanned absence on 12 Aug" style={inputStyle(addLeaveErrs.reason)} />
             </Field>
             {addLeaveDays > 0 && (
-              <div style={{ fontSize: 11, color: C.textSec, marginBottom: 10 }}>{addLeaveDays} working day{addLeaveDays !== 1 ? 's' : ''}</div>
+              <div style={{ fontSize: 11.5, color: C.sub, marginBottom: 10 }}><Mono>{addLeaveDays}</Mono> working day{addLeaveDays !== 1 ? 's' : ''}</div>
             )}
-            <button onClick={submitAddLeave} disabled={addingLeave} style={{ ...btnStyle(C.green, '#fff'), width: '100%', opacity: addingLeave ? 0.7 : 1 }}>
-              {addingLeave ? 'Adding…' : 'Add Leave'}
-            </button>
+            <Btn full disabled={addingLeave} onClick={submitAddLeave}>{addingLeave ? 'Adding…' : 'Add leave'}</Btn>
           </div>
 
-          <div style={{ ...card, background: C.amberBg, border: `0.5px solid #E8C97A`, marginBottom: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 500, color: '#854F0B', marginBottom: 4 }}>Admin leave override</div>
-            <div style={{ fontSize: 12, color: '#854F0B', lineHeight: 1.6 }}>
+          <div style={{ ...noteBox('amber'), marginBottom: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#8a6a22', marginBottom: 4 }}>Admin leave override</div>
+            <div style={{ fontSize: 12, color: '#8a6a22', lineHeight: 1.6 }}>
               Adjust an employee's leave entitlement. Positive numbers add days, negative numbers deduct. Changes apply immediately to their balance.
             </div>
-            <button onClick={() => setActiveTab('comp')} style={{ ...btnStyle(C.purple, '#fff'), marginTop: 12, padding: '7px 12px', fontSize: 12, borderRadius: 18 }}>
-              Credit Comp Off
-            </button>
+            <Btn variant="navySoft" sm style={{ marginTop: 12 }} onClick={() => setActiveTab('comp')}>Credit comp off</Btn>
           </div>
           {leaveTypes.filter(lt => !lt.is_comp_off).map(lt => {
             const currentTotal = empBalance.find(b => b.type_code === lt.code)?.total ?? lt.annual_days
@@ -496,9 +491,9 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                   <div style={{ width: 10, height: 10, borderRadius: '50%', background: lt.color, flexShrink: 0 }} />
                   <div style={{ fontSize: 13, fontWeight: 500 }}>{lt.label}</div>
-                  <div style={{ fontSize: 11, color: C.textTert, marginLeft: 'auto' }}>Current: {currentTotal} days</div>
+                  <div style={{ fontSize: 11, color: C.faint, marginLeft: 'auto' }}>Current: <Mono>{currentTotal}</Mono> days</div>
                 </div>
-                <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
                   <Field label="Adjustment (days)">
                     <input
                       type="number" step="0.5"
@@ -518,8 +513,8 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
                   </Field>
                 </div>
                 {leaveAdj[lt.code] && (
-                  <div style={{ fontSize: 11, color: C.textSec, marginTop: 4 }}>
-                    New total: {newTotal} days
+                  <div style={{ fontSize: 11.5, color: C.sub, marginTop: 4 }}>
+                    New total: <Mono>{newTotal}</Mono> days
                   </div>
                 )}
               </div>
@@ -529,37 +524,35 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
       )}
       {activeTab === 'comp' && isEdit && (
         <div>
-          <div style={{ ...card, background: C.purpleBg, border: `0.5px solid #AFA9EC`, marginBottom: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 500, color: '#3C3489', marginBottom: 4 }}>Credit Comp Off</div>
-            <div style={{ fontSize: 12, color: '#534AB7', lineHeight: 1.6 }}>
+          <div style={{ ...noteBox('purple'), marginBottom: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#4b3fb0', marginBottom: 4 }}>Credit comp off</div>
+            <div style={{ fontSize: 12, color: '#4b3fb0', lineHeight: 1.6 }}>
               Manually add approved comp off days for this employee. This creates an immediately approved comp off record so the balance is updated right away.
             </div>
           </div>
           {compDone ? (
             <div style={{ textAlign: 'center', padding: '28px 0' }}>
-              <div style={{ fontSize: 18, fontWeight: 500, marginBottom: 6 }}>Comp off credited</div>
-              <div style={{ fontSize: 12, color: C.textSec, marginBottom: 18 }}>The employee's comp off balance has been updated.</div>
-              <button onClick={() => setCompDone(false)} style={btnStyle(C.purple, '#fff')}>Add another</button>
+              <div style={{ fontFamily: C.serif, fontSize: 19, marginBottom: 6 }}>Comp off credited</div>
+              <div style={{ fontSize: 12, color: C.sub, marginBottom: 18 }}>The employee's comp off balance has been updated.</div>
+              <Btn onClick={() => setCompDone(false)}>Add another</Btn>
             </div>
           ) : (
             <>
-              <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <Field label="Worked Date" error={compErrs.workedDate}>
+              <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
+                <Field label="Worked date" error={compErrs.workedDate}>
                   <input type="date" value={compForm.workedDate} onChange={e => { setCompForm(f => ({ ...f, workedDate: e.target.value })); setCompErrs({}) }} style={inputStyle(compErrs.workedDate)} />
                 </Field>
-                <Field label="Hours Worked" error={compErrs.workedHours}>
+                <Field label="Hours worked" error={compErrs.workedHours}>
                   <input type="number" min="0" step="0.5" value={compForm.workedHours} onChange={e => { setCompForm(f => ({ ...f, workedHours: e.target.value })); setCompErrs({}) }} style={inputStyle(compErrs.workedHours)} />
                 </Field>
               </div>
-              <Field label="Comp Off Days" error={compErrs.earnedDays}>
+              <Field label="Comp off days" error={compErrs.earnedDays}>
                 <input type="number" min="0.5" step="0.5" value={compForm.earnedDays} onChange={e => { setCompForm(f => ({ ...f, earnedDays: e.target.value })); setCompErrs({}) }} style={inputStyle(compErrs.earnedDays)} />
               </Field>
               <Field label="Reason" error={compErrs.reason}>
                 <textarea rows={3} value={compForm.reason} onChange={e => { setCompForm(f => ({ ...f, reason: e.target.value })); setCompErrs({}) }} style={{ ...inputStyle(compErrs.reason), resize: 'vertical' }} placeholder="Reason for crediting comp off" />
               </Field>
-              <button onClick={saveCompOff} disabled={compSaving} style={{ ...btnStyle(C.purple, '#fff'), width: '100%', opacity: compSaving ? 0.7 : 1 }}>
-                {compSaving ? 'Saving…' : 'Credit Comp Off'}
-              </button>
+              <Btn full disabled={compSaving} onClick={saveCompOff}>{compSaving ? 'Saving…' : 'Credit comp off'}</Btn>
             </>
           )}
         </div>
@@ -568,21 +561,21 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
       {/* Approvers tab */}
       {activeTab === 'approvers' && (
         <div>
-          <div style={{ fontSize: 13, color: C.textSec, marginBottom: 14, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 13, color: C.sub, marginBottom: 14, lineHeight: 1.6 }}>
             Select up to 3 approvers for this employee's leave and comp off requests. Requests go to approver #1 first, then #2, then #3. If none selected, the reporting manager is used.
           </div>
           {approvers.length === 0 ? <Empty text="No other employees found" /> : (
             <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
               {approvers.map((e, i, arr) => (
-                <label key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: i < arr.length - 1 ? `0.5px solid ${C.border}` : 'none', cursor: 'pointer' }}>
+                <label key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: i < arr.length - 1 ? `1px solid ${C.rowLine}` : 'none', cursor: 'pointer' }}>
                   <input type="checkbox" checked={selectedApprovers.includes(e.id)} onChange={() => toggleApprover(e.id)} />
-                  <Avatar initials={e.avatar_initials} size={28} color={C.purple} bg={C.purpleBg} />
+                  <Avatar initials={e.avatar_initials} size={28} />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 500 }}>{e.full_name}</div>
-                    <div style={{ fontSize: 11, color: C.textSec }}>{ROLES[e.role]} {e.department ? `· ${e.department}` : ''}</div>
+                    <div style={{ fontSize: 11, color: C.sub }}>{ROLES[e.role]} {e.department ? `· ${e.department}` : ''}</div>
                   </div>
                   {selectedApprovers.includes(e.id) && (
-                    <span style={{ background: C.purpleBg, color: '#534AB7', fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 10 }}>
+                    <span style={{ background: C.navyBg, color: C.navy, fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 10, fontFamily: C.mono }}>
                       #{selectedApprovers.indexOf(e.id) + 1}
                     </span>
                   )}
@@ -591,7 +584,7 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
             </div>
           )}
           {selectedApprovers.length > 0 && (
-            <div style={{ fontSize: 11, color: C.textTert, marginTop: 8 }}>
+            <div style={{ fontSize: 11, color: C.faint, marginTop: 8 }}>
               {selectedApprovers.length} approver{selectedApprovers.length > 1 ? 's' : ''} — requests route to #1 first
             </div>
           )}
@@ -601,31 +594,31 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
       {/* Activity tab — read-only history, folded in from Team */}
       {activeTab === 'activity' && isEdit && (
         <div>
-          <SecTitle>Leave History</SecTitle>
+          <SecTitle>Leave history</SecTitle>
           {activityLeaves.length === 0 ? <Empty text="No leave requests" /> :
             activityLeaves.map(l => (
               <div key={l.id} style={{ ...card, marginBottom: 10 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-                  <span style={{ fontSize: 14, fontWeight: 500, textTransform: 'capitalize' }}>{l.leave_type} Leave</span>
+                  <span style={{ fontSize: 14, fontWeight: 500, textTransform: 'capitalize' }}>{l.leave_type} leave</span>
                   <Badge status={l.status} />
                 </div>
-                <div style={{ fontSize: 12, color: C.textSec, marginBottom: 3 }}>
-                  {formatDate(l.from_date)} – {formatDate(l.to_date)} · {l.days} day{l.days > 1 ? 's' : ''}
+                <div style={{ fontSize: 12, color: C.sub, marginBottom: 3 }}>
+                  {formatDate(l.from_date)} – {formatDate(l.to_date)} · <Mono>{l.days}</Mono> day{l.days > 1 ? 's' : ''}
                 </div>
-                <div style={{ fontSize: 12, color: C.textTert }}>{l.reason}</div>
+                <div style={{ fontSize: 12, color: C.muted }}>{l.reason}</div>
                 {l.medical_certificate_url && (
                   <button
                     onClick={() => viewCertificate(l.medical_certificate_url)}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.blue, marginTop: 5, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline' }}>
-                    📎 Medical certificate
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: C.blue, marginTop: 5, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline' }}>
+                    Medical certificate
                   </button>
                 )}
                 {l.reject_reason && (
-                  <div style={{ fontSize: 11, color: C.red, marginTop: 5, background: C.redBg, padding: '4px 8px', borderRadius: 6 }}>
+                  <div style={{ fontSize: 11.5, color: C.red, marginTop: 5, background: C.redBg, border: `1px solid ${C.redLine}`, padding: '4px 8px', borderRadius: 6 }}>
                     Rejected: {l.reject_reason}
                   </div>
                 )}
-                <div style={{ fontSize: 10, color: C.textTert, marginTop: 5 }}>Applied {formatDate(l.applied_on)}</div>
+                <div style={{ fontSize: 10.5, color: C.faint, marginTop: 5 }}>Applied {formatDate(l.applied_on)}</div>
               </div>
             ))
           }
@@ -639,39 +632,36 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 500 }}>Week of {formatDate(ts.week_start)}</div>
-                      <div style={{ fontSize: 11, color: C.textSec, marginTop: 2 }}>
+                      <div style={{ fontSize: 11.5, color: C.sub, marginTop: 2, fontFamily: C.mono }}>
                         {ts.total_hours}h logged
-                        {ts.submitted_at && ` · Submitted ${formatDate(ts.submitted_at)}`}
+                        {ts.submitted_at && ` · submitted ${formatDate(ts.submitted_at)}`}
                       </div>
                     </div>
                     <Badge status={ts.status} />
                   </div>
                   {ts.reject_reason && (
-                    <div style={{ fontSize: 11, color: C.red, background: C.redBg, padding: '4px 8px', borderRadius: 6, marginBottom: 6 }}>
+                    <div style={{ fontSize: 11.5, color: C.red, background: C.redBg, border: `1px solid ${C.redLine}`, padding: '4px 8px', borderRadius: 6, marginBottom: 6 }}>
                       Rejected: {ts.reject_reason}
                     </div>
                   )}
-                  <button
-                    onClick={() => loadTsEntries(ts.id)}
-                    style={{ ...btnStyle(C.bgSec, C.textSec), fontSize: 11, padding: '4px 10px', width: '100%' }}
-                  >
-                    {expandedTs === ts.id ? '▲ Hide entries' : '▼ View entries'}
-                  </button>
+                  <Btn variant="subtle" full sm onClick={() => loadTsEntries(ts.id)}>
+                    {expandedTs === ts.id ? 'Hide entries' : 'View entries'}
+                  </Btn>
                   {expandedTs === ts.id && entries.length > 0 && (
                     <div style={{ marginTop: 8 }}>
                       {entries.map(e => (
-                        <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: `0.5px solid ${C.bgTert}` }}>
+                        <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: `1px solid ${C.rowLine}` }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             {e.jira_issue_key && (
-                              <span style={{ background: C.blueBg, color: C.blue, fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 5, marginRight: 5 }}>
+                              <Mono style={{ background: C.blueBg, color: C.blue, fontSize: 10, fontWeight: 500, padding: '1px 6px', borderRadius: 5, marginRight: 5 }}>
                                 {e.jira_issue_key}
-                              </span>
+                              </Mono>
                             )}
                             <span style={{ fontSize: 12 }}>
                               {new Date(e.date + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })} · {e.task_description}
                             </span>
                           </div>
-                          <span style={{ fontSize: 12, fontWeight: 600, flexShrink: 0, marginLeft: 8 }}>{e.hours}h</span>
+                          <Mono style={{ fontSize: 12, fontWeight: 500, flexShrink: 0, marginLeft: 8 }}>{e.hours}h</Mono>
                         </div>
                       ))}
                     </div>
@@ -684,27 +674,22 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
           <SecTitle style={{ marginTop: 18 }}>Attendance (last 30 days)</SecTitle>
           {activityAttendance.length === 0 ? <Empty text="No attendance records" /> :
             activityAttendance.map(a => (
-              <div key={a.id} style={{ ...card, marginBottom: 8 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 500 }}>
-                      {new Date(a.date + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
-                    </div>
-                    <div style={{ fontSize: 11, color: C.textSec, marginTop: 3 }}>
-                      In: {formatTime(a.check_in_time)} · Out: {formatTime(a.check_out_time)}
-                    </div>
-                    {a.check_in_address && (
-                      <div style={{ fontSize: 10, color: C.textTert, marginTop: 3 }}>📍 {a.check_in_address}</div>
-                    )}
+              <div key={a.id} style={{ ...card, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>
+                    {new Date(a.date + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
                   </div>
-                  {a.total_hours != null ? (
-                    <span style={{ background: C.greenBg, color: '#0F6E56', fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 20 }}>
-                      {a.total_hours.toFixed(1)}h
-                    </span>
-                  ) : a.check_in_time ? (
-                    <span style={{ background: C.amberBg, color: C.amber, fontSize: 11, padding: '3px 10px', borderRadius: 20 }}>In only</span>
-                  ) : null}
+                  <div style={{ fontSize: 11.5, color: C.sub, marginTop: 3 }}>
+                    In {formatTime(a.check_in_time)} · Out {formatTime(a.check_out_time)}{a.check_in_address ? ` · ${a.check_in_address}` : ''}
+                  </div>
                 </div>
+                {a.total_hours != null ? (
+                  <Mono style={{ background: C.greenBg, color: '#1f7350', fontSize: 12, fontWeight: 500, padding: '3px 10px', borderRadius: 20, flexShrink: 0 }}>
+                    {a.total_hours.toFixed(1)}h
+                  </Mono>
+                ) : a.check_in_time ? (
+                  <span style={{ background: C.amberBg, color: '#8a6a22', fontSize: 11, padding: '3px 10px', borderRadius: 20, flexShrink: 0 }}>in only</span>
+                ) : null}
               </div>
             ))
           }
@@ -713,15 +698,16 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
 
       {activeTab !== 'activity' && (
         <div style={{ marginTop: 20 }}>
-          <button onClick={handleSaveClick} disabled={saving} style={{ ...btnStyle(C.green, '#fff'), width: '100%', opacity: saving ? 0.7 : 1 }}>
-            {saving ? 'Saving…' : isEdit ? 'Update Employee' : 'Add Employee'}
-          </button>
+          <Btn full disabled={saving} onClick={handleSaveClick}>
+            {saving ? 'Saving…' : isEdit ? 'Update employee' : 'Add employee'}
+          </Btn>
         </div>
       )}
 
       {adminConfirmOpen && (
         <Confirm
           msg={`Grant admin access to ${form.full_name || 'this user'}? They will have full access to employee records, salaries, and settings.`}
+          yesLabel="Grant admin access"
           onYes={() => { setAdminConfirmOpen(false); save() }}
           onNo={() => setAdminConfirmOpen(false)}
         />
@@ -771,56 +757,48 @@ function BulkHolidayModal({ employees, onClose, onImported, onToast }) {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
-      <div style={{ ...card, maxWidth: 440, width: '100%' }}>
-        <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 12 }}>Bulk Upload Holidays by Region</div>
-        <Field label="Region" hint="Applies to every employee whose profile Location matches this region.">
-          <select value={region} onChange={e => setRegion(e.target.value)} style={inputStyle()}>
-            {REGIONS.map(r => <option key={r}>{r}</option>)}
-          </select>
-        </Field>
-
-        {step === 1 && (
-          <>
-            <button onClick={downloadTemplate} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '7px 12px', fontSize: 12, marginBottom: 12 }}>
-              ⬇ Download CSV Template
-            </button>
-            <div
-              role="button" tabIndex={0}
-              onClick={() => document.getElementById('bulk-holiday-upload').click()}
-              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); document.getElementById('bulk-holiday-upload').click() } }}
-              style={{ border: `1.5px dashed ${C.borderMed}`, borderRadius: 8, padding: '20px 12px', background: C.bg, cursor: 'pointer', textAlign: 'center', marginBottom: 14 }}
-            >
-              <div style={{ fontSize: 20, marginBottom: 4 }}>📄</div>
-              <div style={{ fontSize: 13, color: C.textSec, fontWeight: 500 }}>{fileName || 'Click, drag a CSV file here, or press Enter to upload'}</div>
-            </div>
-            <input id="bulk-holiday-upload" type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={e => handleFile(e.target.files?.[0])} />
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button onClick={onClose} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '8px 16px', fontSize: 13 }}>Cancel</button>
-            </div>
+    <Modal title="Bulk upload holidays by region" onClose={onClose} width={460} footer={
+      step === 1
+        ? <Btn variant="ghost" full onClick={onClose}>Cancel</Btn>
+        : <>
+            <Btn variant="ghost" full disabled={importing} onClick={onClose}>Cancel</Btn>
+            <Btn full disabled={importing} onClick={confirmImport}>{importing ? 'Importing…' : `Import ${rows.length} holidays`}</Btn>
           </>
-        )}
+    }>
+      <Field label="Region" hint="Applies to every employee whose profile Location matches this region.">
+        <select value={region} onChange={e => setRegion(e.target.value)} style={inputStyle()}>
+          {REGIONS.map(r => <option key={r}>{r}</option>)}
+        </select>
+      </Field>
 
-        {step === 2 && (
-          <>
-            <div style={{ fontSize: 12, color: C.textSec, marginBottom: 8 }}>{rows.length} row{rows.length !== 1 ? 's' : ''} ready to import for {region}:</div>
-            <div style={{ maxHeight: 180, overflowY: 'auto', marginBottom: 14 }}>
-              {rows.map((r, i) => (
-                <div key={i} style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between', borderTop: `0.5px solid ${C.border}`, padding: '6px 0' }}>
-                  <span>{r.name}</span><span style={{ color: C.textSec }}>{formatDate(r.date)}</span>
-                </div>
-              ))}
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button onClick={onClose} disabled={importing} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '8px 16px', fontSize: 13 }}>Cancel</button>
-              <button onClick={confirmImport} disabled={importing} style={{ ...btnStyle(C.green, '#fff'), padding: '8px 16px', fontSize: 13, opacity: importing ? 0.7 : 1 }}>
-                {importing ? 'Importing…' : `Import ${rows.length} Holidays`}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
+      {step === 1 && (
+        <>
+          <Btn variant="ghost" sm style={{ marginBottom: 12 }} onClick={downloadTemplate}>Download CSV template</Btn>
+          <div
+            role="button" tabIndex={0}
+            onClick={() => document.getElementById('bulk-holiday-upload').click()}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); document.getElementById('bulk-holiday-upload').click() } }}
+            style={{ border: `1.5px dashed ${C.borderMed}`, borderRadius: 10, padding: '22px 12px', background: C.bgSec, cursor: 'pointer', textAlign: 'center' }}
+          >
+            <div style={{ fontSize: 13, color: C.sub, fontWeight: 500 }}>{fileName || 'Click, drag a CSV file here, or press Enter to upload'}</div>
+          </div>
+          <input id="bulk-holiday-upload" type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={e => handleFile(e.target.files?.[0])} />
+        </>
+      )}
+
+      {step === 2 && (
+        <>
+          <div style={{ fontSize: 12, color: C.sub, marginBottom: 8 }}>{rows.length} row{rows.length !== 1 ? 's' : ''} ready to import for {region}:</div>
+          <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+            {rows.map((r, i) => (
+              <div key={i} style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between', borderTop: `1px solid ${C.rowLine}`, padding: '6px 0' }}>
+                <span>{r.name}</span><span style={{ color: C.sub }}>{formatDate(r.date)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </Modal>
   )
 }
 
@@ -897,6 +875,7 @@ function HolidaysPanel({ employees, onToast }) {
       {confirm && (
         <Confirm
           msg={`Remove ${confirm.name} (${formatDate(confirm.holiday_date)})?`}
+          yesLabel="Remove holiday"
           onYes={() => remove(confirm.id)}
           onNo={() => setConfirm(null)}
         />
@@ -911,8 +890,8 @@ function HolidaysPanel({ employees, onToast }) {
       )}
 
       <div style={{ ...card, marginBottom: 18 }}>
-        <SecTitle>Add Holiday</SecTitle>
-        <div className="form-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+        <SecTitle>Add holiday</SecTitle>
+        <div className="form-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
           <Field label="Date" error={errs.holiday_date}>
             <input type="date" value={form.holiday_date} onChange={e => setForm(f => ({ ...f, holiday_date: e.target.value }))} style={inputStyle(errs.holiday_date)} />
           </Field>
@@ -925,14 +904,12 @@ function HolidaysPanel({ employees, onToast }) {
             </select>
           </Field>
         </div>
-        <button onClick={add} disabled={saving} style={{ ...btnStyle(C.green, '#fff'), padding: '8px 16px', fontSize: 13, opacity: saving ? 0.7 : 1 }}>
-          {saving ? 'Adding…' : '+ Add Holiday'}
-        </button>
+        <Btn sm disabled={saving} onClick={add}>{saving ? 'Adding…' : 'Add holiday'}</Btn>
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 11, color: C.textTert }}>{visibleHolidays.length} holiday{visibleHolidays.length !== 1 ? 's' : ''}</span>
+          <span style={{ fontSize: 11, color: C.faint }}>{visibleHolidays.length} holiday{visibleHolidays.length !== 1 ? 's' : ''}</span>
           <select value={regionFilter} onChange={e => setRegionFilter(e.target.value)} style={{ ...inputStyle(), width: 'auto', padding: '5px 8px', fontSize: 12 }}>
             <option value="all">All regions</option>
             {REGIONS.map(r => <option key={r}>{r}</option>)}
@@ -943,20 +920,20 @@ function HolidaysPanel({ employees, onToast }) {
             {copying ? 'Copying…' : "Copy last year's holidays"}
           </button>
           <button onClick={() => setBulkOpen(true)} style={{ background: 'none', border: 'none', color: C.blue, fontSize: 12, fontWeight: 500, cursor: 'pointer', padding: 0 }}>
-            Bulk Upload by Region
+            Bulk upload by region
           </button>
         </div>
       </div>
 
       {visibleHolidays.length === 0 ? <Empty text="No holidays configured" /> : visibleHolidays.map(h => (
-        <div key={h.id} style={{ ...card, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div key={h.id} style={{ ...card, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 500 }}>{h.name}</div>
-            <div style={{ fontSize: 11, color: C.textSec }}>
+            <div style={{ fontSize: 11.5, color: C.sub }}>
               {formatDate(h.holiday_date)} · {h.region} · {employeeCountForRegion(h.region)} employee{employeeCountForRegion(h.region) !== 1 ? 's' : ''}
             </div>
           </div>
-          <button onClick={() => setConfirm(h)} style={{ ...btnStyle(C.redBg, C.red), padding: '6px 12px', fontSize: 12 }}>Remove</button>
+          <Btn variant="danger" sm onClick={() => setConfirm(h)}>Remove</Btn>
         </div>
       ))}
     </div>
@@ -1004,20 +981,20 @@ function AuditLogPanel({ onToast }) {
 
   return (
     <div>
-      <div style={{ ...card, background: C.amberBg, border: `0.5px solid #E8C97A`, marginBottom: 16 }}>
-        <div style={{ fontSize: 12, color: '#854F0B', lineHeight: 1.6 }}>
+      <div style={{ ...noteBox('amber'), marginBottom: 16 }}>
+        <div style={{ fontSize: 12, color: '#8a6a22', lineHeight: 1.6 }}>
           This log covers only salary changes, leave adjustments, and role changes. It does not cover approvals,
           employee lifecycle events (creation/deactivation), holiday changes, or Jira connections.
         </div>
       </div>
-      <div style={{ fontSize: 11, color: C.textTert, marginBottom: 12 }}>{entries.length} recent action{entries.length !== 1 ? 's' : ''}</div>
+      <div style={{ fontSize: 11, color: C.faint, marginBottom: 12 }}>{entries.length} recent action{entries.length !== 1 ? 's' : ''}</div>
       {entries.length === 0 ? <Empty text="No audit events yet" /> : entries.map(e => (
         <div key={e.id} style={{ ...card, marginBottom: 8 }}>
           <div style={{ fontSize: 13, fontWeight: 500 }}>{AUDIT_ACTION_LABEL[e.action] || e.action}</div>
-          <div style={{ fontSize: 11, color: C.textSec, marginTop: 2 }}>
+          <div style={{ fontSize: 11.5, color: C.sub, marginTop: 2 }}>
             {e.actor?.full_name || 'Unknown'} · {formatDateTime(e.created_at)}
           </div>
-          <div style={{ fontSize: 11, color: C.textTert, marginTop: 4, wordBreak: 'break-word' }}>
+          <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4, wordBreak: 'break-word' }}>
             {summarizeAuditChange(e)}
           </div>
         </div>
@@ -1089,7 +1066,7 @@ function ExportPanel({ employees, onToast }) {
 
   const dateRangeInputs = (range, setRange) => (
     <div style={{ marginBottom: 10 }}>
-      <div style={{ fontSize: 11, color: C.textTert, marginBottom: 4 }}>Date range (optional)</div>
+      <div style={{ fontSize: 11, color: C.faint, marginBottom: 4 }}>Date range (optional)</div>
       <div style={{ display: 'flex', gap: 6 }}>
         <input type="date" value={range.from} onChange={e => setRange(r => ({ ...r, from: e.target.value }))} style={{ ...inputStyle(), padding: '6px 8px', fontSize: 12 }} />
         <input type="date" value={range.to} onChange={e => setRange(r => ({ ...r, to: e.target.value }))} style={{ ...inputStyle(), padding: '6px 8px', fontSize: 12 }} />
@@ -1100,18 +1077,16 @@ function ExportPanel({ employees, onToast }) {
   const exportRow = (title, desc, key, onClick, rangeControls) => (
     <div style={{ ...card, marginBottom: 12 }}>
       <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>{title}</div>
-      <div style={{ fontSize: 12, color: C.textSec, marginBottom: 12 }}>{desc}</div>
+      <div style={{ fontSize: 12, color: C.sub, marginBottom: 12 }}>{desc}</div>
       {rangeControls}
-      <button onClick={onClick} disabled={exporting === key} style={{ ...btnStyle(C.green, '#fff'), padding: '7px 14px', fontSize: 12, opacity: exporting === key ? 0.7 : 1 }}>
-        {exporting === key ? 'Exporting…' : 'Export CSV'}
-      </button>
+      <Btn sm disabled={exporting === key} onClick={onClick}>{exporting === key ? 'Exporting…' : 'Export CSV'}</Btn>
     </div>
   )
 
   return (
     <div>
-      {exportRow('Employee Roster', `All ${employees.length} employees with contact and role details.`, 'employees', exportEmployees)}
-      {exportRow('Leave Requests', 'All leave requests across the organization, any status.', 'leave', exportLeaveRequests, dateRangeInputs(leaveRange, setLeaveRange))}
+      {exportRow('Employee roster', `All ${employees.length} employees with contact and role details.`, 'employees', exportEmployees)}
+      {exportRow('Leave requests', 'All leave requests across the organization, any status.', 'leave', exportLeaveRequests, dateRangeInputs(leaveRange, setLeaveRange))}
       {exportRow('Attendance', 'Limited to the most recent 1,000 rows — narrow the date range below if you need older records reliably included.', 'attendance', exportAttendance, dateRangeInputs(attRange, setAttRange))}
     </div>
   )
@@ -1181,18 +1156,18 @@ export default function AdminPanel({ onToast }) {
 
   if (loading) return <Spinner />
 
-  const SectionTab = ({ id, label }) => (
-    <button onClick={() => setSection(id)} style={{ padding: '7px 16px', fontSize: 12, fontWeight: 500, borderRadius: 20, border: 'none', cursor: 'pointer', background: section === id ? C.green : C.bgSec, color: section === id ? '#fff' : C.textSec }}>
-      {label}
-    </button>
-  )
   const sectionTabs = (
-    <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
-      <SectionTab id="employees" label="Employees" />
-      <SectionTab id="holidays" label="Holidays" />
-      <SectionTab id="audit" label="Audit Log" />
-      <SectionTab id="export" label="Export" />
-    </div>
+    <Segmented
+      items={[
+        { id: 'employees', label: 'Employees' },
+        { id: 'holidays', label: 'Holidays' },
+        { id: 'audit', label: 'Audit log' },
+        { id: 'export', label: 'Export' },
+      ]}
+      value={section}
+      onChange={setSection}
+      style={{ marginBottom: 18 }}
+    />
   )
 
   if (section === 'holidays') {
@@ -1274,20 +1249,16 @@ export default function AdminPanel({ onToast }) {
         />
       )}
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
         <input
           value={q} onChange={e => setQ(e.target.value)}
-          placeholder="Search employees…" style={{ ...inputStyle(), flex: 1 }}
+          placeholder="Search employees…" style={{ ...inputStyle(), flex: 1, minWidth: 180 }}
         />
-        <button onClick={() => setView('bulk')} style={{ ...btnStyle(C.bgSec, C.textSec), whiteSpace: 'nowrap', padding: '9px 14px', fontSize: 13 }}>
-          Bulk Add
-        </button>
-        <button onClick={() => setView('add')} style={{ ...btnStyle(C.green, '#fff'), whiteSpace: 'nowrap', padding: '9px 14px', fontSize: 13 }}>
-          + Add Employee
-        </button>
+        <Btn variant="ghost" onClick={() => setView('bulk')} style={{ whiteSpace: 'nowrap' }}>Bulk add</Btn>
+        <Btn onClick={() => setView('add')} style={{ whiteSpace: 'nowrap' }}>+ Add employee</Btn>
       </div>
 
-      <div style={{ fontSize: 11, color: C.textTert, marginBottom: 12 }}>{filtered.length} employee{filtered.length !== 1 ? 's' : ''}</div>
+      <div style={{ fontSize: 11, color: C.faint, marginBottom: 12 }}>{filtered.length} employee{filtered.length !== 1 ? 's' : ''}</div>
 
       {filtered.length === 0 ? <Empty text="No employees found" /> : (
         <>
@@ -1298,28 +1269,26 @@ export default function AdminPanel({ onToast }) {
               return (
                 <div key={e.id} style={{ ...card, marginBottom: 10 }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                    <Avatar initials={e.avatar_initials} size={38} color={C.blue} bg={C.blueBg} />
+                    <Avatar initials={e.avatar_initials} size={38} bg={C.bgTert} color={C.sub} />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+                        <div style={{ minWidth: 0 }}>
                           <div style={{ fontSize: 14, fontWeight: 500 }}>{e.full_name}</div>
-                          <div style={{ fontSize: 11, color: C.textSec }}>{e.employee_code} · {e.designation || ROLES[e.role]} · {e.department || '—'}</div>
-                          <div style={{ fontSize: 11, color: C.textTert }}>Manager: {mgr?.full_name || '—'} · Joined {formatDate(e.joining_date)}</div>
+                          <div style={{ fontSize: 11.5, color: C.sub }}>{e.employee_code} · {e.designation || ROLES[e.role]} · {e.department || '—'}</div>
+                          <div style={{ fontSize: 11, color: C.faint }}>Manager: {mgr?.full_name || '—'} · Joined {formatDate(e.joining_date)}</div>
                           {!e.is_active && e.exit_date && (
-                            <div style={{ fontSize: 11, color: C.textTert }}>Left {formatDate(e.exit_date)}{e.exit_reason ? ` · ${e.exit_reason}` : ''}</div>
+                            <div style={{ fontSize: 11, color: C.faint }}>Left {formatDate(e.exit_date)}{e.exit_reason ? ` · ${e.exit_reason}` : ''}</div>
                           )}
                         </div>
-                        <span style={{ background: e.is_active ? C.greenBg : C.bgTert, color: e.is_active ? '#0F6E56' : C.textSec, fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 10, flexShrink: 0 }}>
-                          {e.is_active ? 'Active' : 'Inactive'}
-                        </span>
+                        <Badge status={e.is_active ? 'active' : 'inactive'} />
                       </div>
                       <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                        <button onClick={() => { setEditing(e); setEditingTab('details'); setView('edit') }} style={{ ...btnStyle(C.bgSec, C.textSec), padding: '6px 12px', fontSize: 12 }}>Edit</button>
-                        <button onClick={() => { setEditing(e); setEditingTab('leave'); setView('edit') }} style={{ ...btnStyle(C.purpleBg, '#3C3489'), padding: '6px 12px', fontSize: 12 }}>Add / Remove Leaves</button>
-                        <button onClick={() => setResetTarget(e)} style={{ ...btnStyle(C.blueBg, C.blue), padding: '6px 12px', fontSize: 12 }}>Reset Password</button>
+                        <Btn variant="ghost" sm onClick={() => { setEditing(e); setEditingTab('details'); setView('edit') }}>Edit</Btn>
+                        <Btn variant="subtle" sm onClick={() => { setEditing(e); setEditingTab('leave'); setView('edit') }}>Add / remove leaves</Btn>
+                        <Btn variant="subtle" sm onClick={() => setResetTarget(e)}>Reset password</Btn>
                         {e.is_active
-                          ? <button onClick={() => setConfirm(e)} style={{ ...btnStyle(C.redBg, C.red), padding: '6px 12px', fontSize: 12 }}>Deactivate</button>
-                          : <button onClick={() => handleReactivate(e.id)} style={{ ...btnStyle(C.greenBg, '#0F6E56'), padding: '6px 12px', fontSize: 12 }}>Reactivate</button>}
+                          ? <Btn variant="danger" sm onClick={() => setConfirm(e)}>Deactivate</Btn>
+                          : <Btn variant="subtle" sm onClick={() => handleReactivate(e.id)}>Reactivate</Btn>}
                       </div>
                     </div>
                   </div>
@@ -1340,23 +1309,21 @@ export default function AdminPanel({ onToast }) {
               {filtered.map(e => (
                 <tr key={e.id}>
                   <td style={{ fontWeight: 500 }}>{e.full_name}</td>
-                  <td style={{ color: C.textSec }}>{e.employee_code}</td>
-                  <td style={{ color: C.textSec }}>{e.department || '—'}</td>
-                  <td style={{ color: C.textSec }}>{e.designation || '—'}</td>
-                  <td style={{ color: C.textSec, textTransform: 'capitalize' }}>{ROLES[e.role]}</td>
+                  <td style={{ color: C.sub, fontFamily: C.mono, fontSize: 12 }}>{e.employee_code}</td>
+                  <td style={{ color: C.sub }}>{e.department || '—'}</td>
+                  <td style={{ color: C.sub }}>{e.designation || '—'}</td>
+                  <td style={{ color: C.sub }}>{ROLES[e.role]}</td>
                   <td>
-                    <span style={{ background: e.is_active ? C.greenBg : C.bgTert, color: e.is_active ? '#0F6E56' : C.textSec, fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 10 }}>
-                      {e.is_active ? 'Active' : 'Inactive'}
-                    </span>
+                    <Badge status={e.is_active ? 'active' : 'inactive'} />
                     {!e.is_active && e.exit_date && (
-                      <div style={{ fontSize: 10, color: C.textTert, marginTop: 3 }}>Left {formatDate(e.exit_date)}</div>
+                      <div style={{ fontSize: 10, color: C.faint, marginTop: 3 }}>Left {formatDate(e.exit_date)}</div>
                     )}
                   </td>
                   <td>
                     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                       <button onClick={() => { setEditing(e); setEditingTab('details'); setView('edit') }} style={{ background: 'none', border: 'none', color: C.blue, fontWeight: 500, cursor: 'pointer', fontSize: 12, padding: 0 }}>Edit</button>
-                      <button onClick={() => { setEditing(e); setEditingTab('leave'); setView('edit') }} style={{ background: 'none', border: 'none', color: '#3C3489', fontWeight: 500, cursor: 'pointer', fontSize: 12, padding: 0 }}>Leaves</button>
-                      <button onClick={() => setResetTarget(e)} style={{ background: 'none', border: 'none', color: C.blue, fontWeight: 500, cursor: 'pointer', fontSize: 12, padding: 0 }}>Reset Password</button>
+                      <button onClick={() => { setEditing(e); setEditingTab('leave'); setView('edit') }} style={{ background: 'none', border: 'none', color: C.purple, fontWeight: 500, cursor: 'pointer', fontSize: 12, padding: 0 }}>Leaves</button>
+                      <button onClick={() => setResetTarget(e)} style={{ background: 'none', border: 'none', color: C.blue, fontWeight: 500, cursor: 'pointer', fontSize: 12, padding: 0 }}>Reset password</button>
                       {e.is_active
                         ? <button onClick={() => setConfirm(e)} style={{ background: 'none', border: 'none', color: C.red, fontWeight: 500, cursor: 'pointer', fontSize: 12, padding: 0 }}>Deactivate</button>
                         : <button onClick={() => handleReactivate(e.id)} style={{ background: 'none', border: 'none', color: C.green, fontWeight: 500, cursor: 'pointer', fontSize: 12, padding: 0 }}>Reactivate</button>}

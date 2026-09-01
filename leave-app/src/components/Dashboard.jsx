@@ -1,186 +1,278 @@
 import { useEffect, useState } from 'react'
-import { fetchLeaveBalance, fetchMyLeaves, fetchMyCompRequests, fetchHolidays, fetchBirthdays } from '../lib/api'
-import { Avatar, Badge, C, SecTitle, Spinner, card, formatDate, formatDayMonth } from './UI'
+import {
+  fetchLeaveBalance, fetchMyLeaves, fetchMyCompRequests, fetchHolidays, fetchBirthdays,
+  fetchTodayAttendance, fetchEmployees, fetchAllAttendance, fetchTeamCalendar,
+  fetchPendingForApprover, fetchPendingCompForApprover, fetchPendingTimesheets,
+  fetchPendingRegularizations, decideLeave,
+} from '../lib/api'
+import {
+  Avatar, Badge, Btn, C, Panel, ProgressBar, SecTitle, Spinner, StatTile,
+  card, formatDate, formatDayMonth,
+} from './UI'
+
+const today = new Date().toISOString().split('T')[0]
+const fmtTime = ts => ts ? new Date(ts).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '—'
+
+const TONE = { annual: '#3a76ad', sick: '#3a76ad', comp: '#c2882a' }
 
 export default function Dashboard({ employee, onToast, onNavigate }) {
-  const [balances,  setBalances]  = useState([])
-  const [leaves,    setLeaves]    = useState([])
-  const [compReqs,  setCompReqs]  = useState([])
-  const [holidays,  setHolidays]  = useState([])
+  const isApprover = employee.role === 'admin' || employee.role === 'manager'
+  const [loading, setLoading] = useState(true)
+  const [balances, setBalances] = useState([])
+  const [leaves, setLeaves] = useState([])
+  const [compReqs, setCompReqs] = useState([])
+  const [holidays, setHolidays] = useState([])
   const [birthdays, setBirthdays] = useState([])
-  const [loading,   setLoading]   = useState(true)
-  const [holidaysError,  setHolidaysError]  = useState(false)
-  const [birthdaysError, setBirthdaysError] = useState(false)
+  const [attendance, setAttendance] = useState(null)
+  const [inbox, setInbox] = useState([])
+  const [pendingCounts, setPendingCounts] = useState({ leave: 0, comp: 0, ts: 0, reg: 0 })
+  const [teamToday, setTeamToday] = useState([])
+  const [deciding, setDeciding] = useState(null)
 
   useEffect(() => {
+    setLoading(true)
     Promise.all([
       fetchLeaveBalance(employee.id),
       fetchMyLeaves(employee.id),
       fetchMyCompRequests(employee.id),
-    ]).then(([b, l, c]) => {
+      fetchHolidays(),
+      fetchBirthdays(),
+      fetchTodayAttendance(employee.id),
+      isApprover ? fetchPendingForApprover(employee.id)     : Promise.resolve({ data: [] }),
+      isApprover ? fetchPendingCompForApprover(employee.id) : Promise.resolve({ data: [] }),
+      isApprover ? fetchPendingTimesheets(employee.id)      : Promise.resolve({ data: [] }),
+      isApprover ? fetchPendingRegularizations(employee.id) : Promise.resolve({ data: [] }),
+      isApprover ? fetchEmployees()                          : Promise.resolve({ data: [] }),
+      isApprover ? fetchAllAttendance(300, { from: today, to: today }) : Promise.resolve({ data: [] }),
+      isApprover ? fetchTeamCalendar(today, today)           : Promise.resolve({ data: [] }),
+    ]).then(([b, l, c, h, bd, att, pl, pc, pt, pr, emps, allAtt, tc]) => {
       const err = b.error || l.error || c.error
       if (err) onToast?.(err.message || 'Failed to load some data', 'error')
       setBalances(b.data || [])
       setLeaves((l.data || []).slice(0, 4))
       setCompReqs((c.data || []).filter(x => x.status === 'pending'))
+      setHolidays(h.data || [])
+      setBirthdays(bd.data || [])
+      setAttendance(att.data || null)
+      setInbox((pl.data || []).slice(0, 3))
+      setPendingCounts({
+        leave: (pl.data || []).length, comp: (pc.data || []).length,
+        ts: (pt.data || []).length, reg: (pr.data || []).length,
+      })
+      if (isApprover) {
+        const onLeave = new Set((tc.data || []).map(x => x.employee_id))
+        const attByEmp = {}
+        for (const a of (allAtt.data || [])) attByEmp[a.employee_id] = a
+        const rows = (emps.data || [])
+          .filter(e => e.is_active !== false && e.id !== employee.id)
+          .map(e => {
+            const a = attByEmp[e.id]
+            if (onLeave.has(e.id)) return { ...e, state: 'leave' }
+            if (a?.check_in_time) return { ...e, state: 'in', time: fmtTime(a.check_in_time) }
+            return { ...e, state: 'out' }
+          })
+          .sort((a, b) => ({ in: 0, leave: 1, out: 2 })[a.state] - ({ in: 0, leave: 1, out: 2 })[b.state])
+        setTeamToday(rows)
+      }
     }).finally(() => setLoading(false))
-    loadHolidays()
-    loadBirthdays()
   }, [employee.id])
 
-  const loadHolidays = () => {
-    setHolidaysError(false)
-    fetchHolidays().then(({ data, error }) => {
-      if (error) { setHolidaysError(true); return }
-      setHolidays(data || [])
-    })
-  }
-
-  const loadBirthdays = () => {
-    setBirthdaysError(false)
-    fetchBirthdays().then(({ data, error }) => {
-      if (error) { setBirthdaysError(true); return }
-      setBirthdays(data || [])
-    })
+  const decide = async (id, status) => {
+    setDeciding(id)
+    const { error } = await decideLeave(id, status)
+    setDeciding(null)
+    if (error) { onToast?.(error.message, 'error'); return }
+    onToast?.(`Leave ${status}`)
+    setInbox(p => p.filter(x => x.id !== id))
+    setPendingCounts(p => ({ ...p, leave: Math.max(0, p.leave - 1) }))
   }
 
   if (loading) return <Spinner />
 
-  const now = new Date()
-  const curMonth = now.getMonth()
-  const todayStr = now.toISOString().split('T')[0]
-
+  const curMonth = new Date().getMonth()
   const holidaysThisMonth = holidays
-    .filter(h => h.holiday_date >= todayStr && new Date(h.holiday_date + 'T12:00:00').getMonth() === curMonth)
+    .filter(h => h.holiday_date >= today && new Date(h.holiday_date + 'T12:00:00').getMonth() === curMonth)
     .sort((a, b) => a.holiday_date.localeCompare(b.holiday_date))
-
   const birthdaysThisMonth = birthdays
     .filter(b => new Date(b.date_of_birth + 'T12:00:00').getMonth() === curMonth)
     .sort((a, b) => new Date(a.date_of_birth + 'T12:00:00').getDate() - new Date(b.date_of_birth + 'T12:00:00').getDate())
 
-  return (
-    <div>
-      {/* Quick actions */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 18 }}>
-        <button
-          onClick={() => onNavigate?.('apply')}
-          style={{ background: C.green, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 18px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
-        >
-          Apply Leave
-        </button>
-        <button
-          onClick={() => onNavigate?.('attendance')}
-          style={{ background: 'transparent', color: C.text, border: `0.5px solid ${C.border}`, borderRadius: 8, padding: '10px 18px', fontSize: 13, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap' }}
-        >
-          Check In
-        </button>
-      </div>
+  // Check-in state
+  const checkedIn = attendance?.check_in_time && !attendance?.check_out_time
+  const done = attendance?.check_in_time && attendance?.check_out_time
+  const hours = (attendance?.total_hours || 0).toFixed(1)
+  const bannerLabel = checkedIn ? 'Check out' : done ? 'Check in again' : 'Check in'
+  const bannerSub = attendance?.check_in_time
+    ? `Since ${fmtTime(attendance.check_in_time)}${(attendance.total_hours || 0) >= 8 ? ' · minimum 8h met' : ''}`
+    : "You haven't checked in yet today"
 
-      {/* Profile card */}
-      <div style={{ ...card, background: C.bgSec, marginBottom: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <Avatar initials={employee.avatar_initials} size={44} color={C.green} bg={C.greenBg} />
-          <div>
-            <div style={{ fontWeight: 500, fontSize: 15 }}>{employee.full_name}</div>
-            <div style={{ fontSize: 12, color: C.textSec }}>
-              {employee.designation || employee.role} · {employee.department || 'No dept'}
-            </div>
-            <div style={{ fontSize: 11, color: C.textTert }}>Joined {formatDate(employee.joining_date)}</div>
+  const totalPending = pendingCounts.leave + pendingCounts.comp + pendingCounts.ts + pendingCounts.reg
+  const teamIn = teamToday.filter(t => t.state === 'in').length
+  const teamLeave = teamToday.filter(t => t.state === 'leave').length
+  const teamOut = teamToday.filter(t => t.state === 'out').length
+
+  const reqDot = { pending: '#c2882a', approved: '#3a76ad', rejected: C.red, cancelled: C.faint }
+  const reqBg = { pending: '#fdfaf4', approved: '#f4f8fd', rejected: C.redBg, cancelled: C.bgTert }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+      {/* ── Check-in banner ── */}
+      <div style={{
+        background: C.navy, borderRadius: 14, padding: '22px 24px', color: '#e7f2ec',
+        display: 'flex', alignItems: 'center', gap: 28, flexWrap: 'wrap',
+      }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(231,242,236,0.6)' }}>
+            {checkedIn ? 'Checked in' : done ? 'Checked out' : 'Attendance'}
           </div>
+          <div style={{ fontFamily: C.serif, fontSize: 36, lineHeight: 1.1, marginTop: 8, color: '#fff' }}>
+            {hours}<span style={{ fontSize: 18, color: 'rgba(255,255,255,0.6)' }}> h today</span>
+          </div>
+          <div style={{ fontSize: 12.5, color: 'rgba(231,242,236,0.75)', marginTop: 6 }}>{bannerSub}</div>
+        </div>
+        <div style={{ width: 1, alignSelf: 'stretch', background: 'rgba(255,255,255,0.14)' }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 190 }}>
+          <button onClick={() => onNavigate?.('attendance')}
+            style={{ height: 42, border: 'none', borderRadius: 9, background: '#fff', color: C.navy, fontSize: 13.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+            {bannerLabel}
+          </button>
+          <button onClick={() => onNavigate?.('apply')}
+            style={{ height: 38, border: '1px solid rgba(255,255,255,0.3)', borderRadius: 9, background: 'none', color: '#e7f2ec', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
+            Apply for leave
+          </button>
         </div>
       </div>
 
-      <SecTitle>Leave Balance — {new Date().getFullYear()}</SecTitle>
-      <div className="balance-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 22 }}>
+      {/* ── Balance tiles ── */}
+      <div className="balance-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         {balances.map(b => {
           const pct = b.total > 0 ? Math.round((b.used / b.total) * 100) : 0
           return (
-            <div key={b.type_code} style={card}>
-              <div style={{ fontSize: 11, color: C.textSec, marginBottom: 4 }}>{b.label}</div>
-              <div style={{ fontSize: 28, fontWeight: 500, color: b.color, lineHeight: 1 }}>{b.remaining}</div>
-              <div style={{ fontSize: 10, color: C.textTert, marginBottom: 9 }}>of {b.total} remaining</div>
-              <div style={{ background: C.bgSec, borderRadius: 4, height: 3 }}>
-                <div style={{ width: `${pct}%`, height: '100%', background: b.color, borderRadius: 4 }} />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5 }}>
-                <span style={{ fontSize: 10, color: C.textTert }}>{b.used} used</span>
-                {b.type_code === 'comp' && <span style={{ fontSize: 10, color: b.color }}>{b.total} earned</span>}
-              </div>
-            </div>
+            <StatTile
+              key={b.type_code}
+              label={b.label}
+              value={b.remaining}
+              unit={`of ${b.total}`}
+              meta={`${b.used} used`}
+              pct={pct}
+              color={TONE[b.type_code] || '#3a76ad'}
+              foot={<>
+                <span>{b.used} used</span>
+                {b.type_code === 'comp' && <span style={{ color: '#c2882a' }}>{b.total} earned</span>}
+              </>}
+            />
           )
         })}
       </div>
 
-      {(holidaysThisMonth.length > 0 || birthdaysThisMonth.length > 0 || holidaysError || birthdaysError) && (
-        <SecTitle>This Month</SecTitle>
-      )}
-      <div style={{ display: 'grid', gridTemplateColumns: (holidaysThisMonth.length || holidaysError) && (birthdaysThisMonth.length || birthdaysError) ? '1fr 1fr' : '1fr', gap: 10, marginBottom: 22 }}>
-        {holidaysError ? (
-          <div style={card}>
-            <div style={{ fontSize: 13, color: C.red, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>Couldn't load this section.</span>
-              <button onClick={loadHolidays} style={{ background: 'transparent', border: `1px solid ${C.red}`, color: C.red, borderRadius: 8, padding: '5px 12px', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>Retry</button>
-            </div>
-          </div>
-        ) : holidaysThisMonth.length > 0 && (
-          <div style={card}>
-            <div style={{ fontSize: 11, color: C.textSec, marginBottom: 8 }}>📅 Upcoming Holidays</div>
-            {holidaysThisMonth.map(h => (
-              <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '5px 0' }}>
-                <span style={{ fontSize: 13 }}>{h.name}</span>
-                <span style={{ fontSize: 11, color: C.textTert, flexShrink: 0, marginLeft: 8 }}>{formatDayMonth(h.holiday_date)}</span>
+      {/* ── Team today (approvers) ── */}
+      {isApprover && teamToday.length > 0 && (
+        <Panel title="Team today" right={<span style={{ fontSize: 11.5, color: C.sub }}>{teamIn} in · {teamLeave} on leave · {teamOut} not in</span>}>
+          {teamToday.slice(0, 8).map(t => (
+            <div key={t.id} style={{ display: 'grid', gridTemplateColumns: '190px minmax(0,1fr) 120px', gap: 14, alignItems: 'center', padding: '9px 0', borderBottom: `1px solid ${C.rowLine}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                <Avatar initials={t.avatar_initials} size={26} bg={C.bgTert} color={C.sub} />
+                <span style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.full_name}</span>
               </div>
-            ))}
-          </div>
-        )}
-        {birthdaysError ? (
-          <div style={card}>
-            <div style={{ fontSize: 13, color: C.red, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>Couldn't load this section.</span>
-              <button onClick={loadBirthdays} style={{ background: 'transparent', border: `1px solid ${C.red}`, color: C.red, borderRadius: 8, padding: '5px 12px', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>Retry</button>
-            </div>
-          </div>
-        ) : birthdaysThisMonth.length > 0 && (
-          <div style={card}>
-            <div style={{ fontSize: 11, color: C.textSec, marginBottom: 8 }}>🎂 Birthdays</div>
-            {birthdaysThisMonth.map(b => (
-              <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0' }}>
-                <Avatar initials={b.avatar_initials} size={22} color={C.purple} bg={C.purpleBg} />
-                <span style={{ fontSize: 13, flex: 1, minWidth: 0 }}>
-                  {b.full_name}{b.id === employee.id ? ' (You)' : ''}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: t.state === 'in' ? C.greenDot : t.state === 'leave' ? '#3a76ad' : '#c2882a' }} />
+                <span style={{ fontSize: 12.5, color: t.state === 'in' ? C.body : t.state === 'leave' ? '#2a5c8a' : '#8a6a22' }}>
+                  {t.state === 'in' ? 'Checked in' : t.state === 'leave' ? 'On leave' : 'Not checked in'}
                 </span>
-                <span style={{ fontSize: 11, color: C.textTert, flexShrink: 0 }}>{formatDayMonth(b.date_of_birth)}</span>
+              </div>
+              <span style={{ fontFamily: C.mono, fontSize: 11.5, color: C.sub, textAlign: 'right' }}>{t.time || '—'}</span>
+            </div>
+          ))}
+        </Panel>
+      )}
+
+      <div className="split-2" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16 }}>
+
+        {/* ── Your requests (everyone) ── */}
+        {leaves.length > 0 && (
+          <Panel title="Your requests" right={<span onClick={() => onNavigate?.('history')} style={{ fontSize: 12, color: C.blue, cursor: 'pointer' }}>All ›</span>}>
+            {leaves.map(l => (
+              <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 0', borderBottom: `1px solid ${C.lineSoft}` }}>
+                <span style={{ width: 6, height: 6, flexShrink: 0, borderRadius: '50%', background: reqDot[l.status] }} />
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, textTransform: 'capitalize', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.leave_type} leave · {formatDate(l.from_date)} – {formatDate(l.to_date)}</div>
+                  <div style={{ fontSize: 11.5, color: C.sub }}>{l.days} day{l.days !== 1 ? 's' : ''} · applied {formatDate(l.applied_on)}</div>
+                </div>
+                <span style={{ background: reqBg[l.status], color: reqDot[l.status], fontSize: 10.5, letterSpacing: '0.05em', textTransform: 'uppercase', borderRadius: 20, padding: '3px 9px', border: `1px solid ${C.line}` }}>{l.status}</span>
               </div>
             ))}
-          </div>
+            {compReqs.length > 0 && (
+              <div style={{ paddingTop: 11, fontSize: 12, color: C.muted }}>
+                {compReqs.length} comp off request{compReqs.length > 1 ? 's' : ''} pending approval
+              </div>
+            )}
+          </Panel>
         )}
+
+        {/* ── Needs you (approvers) ── */}
+        {isApprover && (
+          <Panel title="Needs you" right={<span onClick={() => onNavigate?.('approvals')} style={{ fontSize: 12, color: C.blue, cursor: 'pointer' }}>Approvals ›</span>}>
+            {totalPending === 0 ? (
+              <div style={{ fontSize: 12.5, color: C.muted, padding: '4px 0' }}>Nothing pending your approval.</div>
+            ) : (
+              <>
+                {inbox.map(i => (
+                  <div key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 0', borderBottom: `1px solid ${C.lineSoft}` }}>
+                    <Avatar initials={i.employee?.avatar_initials} size={28} bg={C.blueBg} color={C.blue} />
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{i.employee?.full_name}</div>
+                      <div style={{ fontSize: 11.5, color: C.sub, textTransform: 'capitalize' }}>{i.leave_type} leave · {formatDate(i.from_date)} – {formatDate(i.to_date)}</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button disabled={deciding === i.id} onClick={() => decide(i.id, 'approved')} style={{ height: 27, padding: '0 10px', border: `1px solid ${C.navyBg}`, background: C.navyBg, borderRadius: 6, fontSize: 12, color: C.navy, cursor: 'pointer', fontFamily: 'inherit' }}>Approve</button>
+                      <button disabled={deciding === i.id} onClick={() => decide(i.id, 'rejected')} style={{ height: 27, padding: '0 9px', border: `1px solid ${C.line}`, background: '#fff', borderRadius: 6, fontSize: 12, color: C.sub, cursor: 'pointer', fontFamily: 'inherit' }}>Reject</button>
+                    </div>
+                  </div>
+                ))}
+                <div style={{ paddingTop: 11, fontSize: 12, color: C.muted }}>
+                  {[
+                    pendingCounts.comp && `${pendingCounts.comp} comp off`,
+                    pendingCounts.ts && `${pendingCounts.ts} timesheet`,
+                    pendingCounts.reg && `${pendingCounts.reg} regularization`,
+                  ].filter(Boolean).join(' · ') || 'Leave requests only'} awaiting review
+                </div>
+              </>
+            )}
+          </Panel>
+        )}
+
+        {/* ── Coming up ── */}
+        <Panel title="Coming up">
+          {holidaysThisMonth.length === 0 && birthdaysThisMonth.length === 0 && (
+            <div style={{ fontSize: 12.5, color: C.muted, padding: '4px 0' }}>Nothing on the calendar this month.</div>
+          )}
+          {holidaysThisMonth.map(h => (
+            <ComingRow key={h.id} chipBg="#e4edf7" chipFg={C.navy}
+              date={h.holiday_date} label={h.name} meta={`Company holiday · ${h.region || 'All'}`} />
+          ))}
+          {birthdaysThisMonth.map(b => (
+            <ComingRow key={b.id} chipBg="#eef2f7" chipFg={C.sub}
+              date={b.date_of_birth} label={`${b.full_name}${b.id === employee.id ? ' (You)' : ''} — birthday`} meta="Say hi" />
+          ))}
+        </Panel>
       </div>
+    </div>
+  )
+}
 
-      {compReqs.length > 0 && <>
-        <SecTitle>Pending Comp Off Requests</SecTitle>
-        {compReqs.map(c => (
-          <div key={c.id} style={{ ...card, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 500 }}>Worked {formatDate(c.worked_date)}</div>
-              <div style={{ fontSize: 11, color: C.textSec }}>{c.worked_hours}h · {c.reason}</div>
-            </div>
-            <Badge status={c.status} />
-          </div>
-        ))}
-      </>}
-
-      {leaves.length > 0 && <>
-        <SecTitle style={{ marginTop: 8 }}>Recent Leaves</SecTitle>
-        {leaves.map(l => (
-          <div key={l.id} style={{ ...card, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 500, textTransform: 'capitalize' }}>{l.leave_type} leave</div>
-              <div style={{ fontSize: 11, color: C.textSec }}>{formatDate(l.from_date)} – {formatDate(l.to_date)} · {l.days}d</div>
-            </div>
-            <Badge status={l.status} />
-          </div>
-        ))}
-      </>}
+function ComingRow({ date, label, meta, chipBg, chipFg }) {
+  const d = new Date(date + 'T12:00:00')
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '48px minmax(0,1fr)', gap: 14, padding: '12px 0', borderBottom: `1px solid ${C.lineSoft}`, alignItems: 'center' }}>
+      <div style={{ textAlign: 'center', borderRadius: 8, background: chipBg, padding: '5px 0' }}>
+        <div style={{ fontSize: 9, letterSpacing: '0.08em', textTransform: 'uppercase', color: chipFg }}>{d.toLocaleDateString('en-IN', { month: 'short' })}</div>
+        <div style={{ fontFamily: 'var(--mono)', fontSize: 14, color: chipFg }}>{d.getDate()}</div>
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
+        <div style={{ fontSize: 11.5, color: '#7b8798' }}>{meta}</div>
+      </div>
     </div>
   )
 }

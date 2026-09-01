@@ -1,22 +1,17 @@
 import { useEffect, useState } from 'react'
 import {
   fetchTodayAttendance, fetchAttendanceHistory,
-  checkIn, checkOut,
-  fetchPunches, addPunch,
+  checkIn, checkOut, fetchPunches, addPunch,
   createRegularization, fetchMyRegularizations,
   updateAttendanceStatus, getApproverForEmployee,
 } from '../lib/api'
-import { Badge, C, SecTitle, Spinner, card, formatDate, Field, btnStyle, inputStyle } from './UI'
+import { Badge, Btn, C, Field, Mono, Panel, SecTitle, Spinner, card, formatDate, inputStyle } from './UI'
 
 const MIN_HOURS = 8
 
-// ── Location helpers ──────────────────────────────────────────────────────────
 function getLocation() {
   return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error('Geolocation is not supported by your browser'))
-      return
-    }
+    if (!navigator.geolocation) { reject(new Error('Geolocation is not supported by your browser')); return }
     navigator.geolocation.getCurrentPosition(
       p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
       e => reject(new Error(e.code === 1 ? 'Location permission denied' : 'Could not get location')),
@@ -27,71 +22,48 @@ function getLocation() {
 
 async function reverseGeocode(lat, lng) {
   try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`,
-      { headers: { 'Accept-Language': 'en' } }
-    )
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`, { headers: { 'Accept-Language': 'en' } })
     const j = await res.json()
     const a = j.address || {}
-    const parts = [
-      a.road,
-      a.suburb || a.neighbourhood || a.quarter,
-      a.city || a.town || a.village || a.county,
-    ].filter(Boolean)
+    const parts = [a.road, a.suburb || a.neighbourhood || a.quarter, a.city || a.town || a.village || a.county].filter(Boolean)
     return parts.length ? parts.join(', ') : j.display_name || `${lat.toFixed(4)}, ${lng.toFixed(4)}`
-  } catch {
-    return `${lat.toFixed(4)}, ${lng.toFixed(4)}`
-  }
+  } catch { return `${lat.toFixed(4)}, ${lng.toFixed(4)}` }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 function getWeekDays() {
-  const today = new Date()
-  const day = today.getDay()
-  const monday = new Date(today)
-  monday.setDate(today.getDate() - (day === 0 ? 6 : day - 1))
-  return Array.from({ length: 5 }, (_, i) => {
-    const d = new Date(monday)
-    d.setDate(monday.getDate() + i)
-    return d.toISOString().split('T')[0]
-  })
+  const t = new Date()
+  const day = t.getDay()
+  const monday = new Date(t)
+  monday.setDate(t.getDate() - (day === 0 ? 6 : day - 1))
+  return Array.from({ length: 5 }, (_, i) => { const d = new Date(monday); d.setDate(monday.getDate() + i); return d.toISOString().split('T')[0] })
 }
-
-function formatTime(ts) {
-  if (!ts) return '—'
-  return new Date(ts).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
-}
-
+const formatTime = ts => ts ? new Date(ts).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '—'
 const DAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
 
-// Calculate total hours from paired punches
 function calcHoursFromPunches(punches) {
   let total = 0
   for (let i = 0; i < punches.length; i++) {
     if (punches[i].punch_type === 'check_in') {
-      const outPunch = punches.find((p, j) => j > i && p.punch_type === 'check_out')
-      if (outPunch) {
-        total += (new Date(outPunch.punch_time) - new Date(punches[i].punch_time)) / 3600000
-      }
+      const out = punches.find((p, j) => j > i && p.punch_type === 'check_out')
+      if (out) total += (new Date(out.punch_time) - new Date(punches[i].punch_time)) / 3600000
     }
   }
   return Math.round(total * 100) / 100
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
 export default function Attendance({ employee, onToast }) {
-  const [record,      setRecord]      = useState(null)   // today's attendance record
-  const [punches,     setPunches]     = useState([])      // today's punch events
-  const [history,     setHistory]     = useState([])
-  const [regs,        setRegs]        = useState([])      // regularization requests
-  const [loading,     setLoading]     = useState(true)
-  const [locating,    setLocating]    = useState(false)
-  const [locErr,      setLocErr]      = useState('')
-  const [regForm,     setRegForm]     = useState(null)    // { attendanceId, reason, checkOutTime }
-  const [regSaving,   setRegSaving]   = useState(false)
-  const [geoDenied,      setGeoDenied]      = useState(false)
+  const [record, setRecord]   = useState(null)
+  const [punches, setPunches] = useState([])
+  const [history, setHistory] = useState([])
+  const [regs, setRegs]       = useState([])
+  const [loading, setLoading] = useState(true)
+  const [locating, setLocating] = useState(false)
+  const [locErr, setLocErr]   = useState('')
+  const [regForm, setRegForm] = useState(null)
+  const [regSaving, setRegSaving] = useState(false)
+  const [geoDenied, setGeoDenied] = useState(false)
   const [manualLocation, setManualLocation] = useState('')
-  const [manualNotes,    setManualNotes]    = useState('')
+  const [manualNotes, setManualNotes]       = useState('')
 
   const weekDays = getWeekDays()
   const todayStr = new Date().toISOString().split('T')[0]
@@ -99,597 +71,247 @@ export default function Attendance({ employee, onToast }) {
   const load = async () => {
     setLoading(true)
     const [{ data: rec, error: recErr }, { data: hist, error: histErr }, { data: regData, error: regErr }] = await Promise.all([
-      fetchTodayAttendance(employee.id),
-      fetchAttendanceHistory(employee.id, 30),
-      fetchMyRegularizations(employee.id),
+      fetchTodayAttendance(employee.id), fetchAttendanceHistory(employee.id, 30), fetchMyRegularizations(employee.id),
     ])
     const err = recErr || histErr || regErr
     if (err) onToast?.(err.message || 'Failed to load attendance data', 'error')
-    setRecord(rec || null)
-    setHistory(hist || [])
-    setRegs(regData || [])
-    // Load today's punches if record exists
-    if (rec?.id) {
-      const { data: p } = await fetchPunches(rec.id)
-      setPunches(p || [])
-    } else {
-      setPunches([])
-    }
+    setRecord(rec || null); setHistory(hist || []); setRegs(regData || [])
+    if (rec?.id) { const { data: p } = await fetchPunches(rec.id); setPunches(p || []) } else setPunches([])
     setLoading(false)
   }
-
   useEffect(() => { load() }, [employee.id])
 
-  // Determine current punch state from punches
   const lastPunch = punches.length > 0 ? punches[punches.length - 1] : null
   const isCurrentlyIn = lastPunch?.punch_type === 'check_in'
   const hasAnyPunch = punches.length > 0
   const sessionCount = punches.filter(p => p.punch_type === 'check_in').length
 
-  // Shared write path for check-in, used whether the coordinates came from
-  // the device's geolocation or were entered manually (lat/lng null).
   const writeCheckIn = async (lat, lng, address) => {
     const now = new Date().toISOString()
-    const prevHours = record?.total_hours || 0
     const { data, error } = await checkIn({
-      employee_id: employee.id,
-      date: todayStr,
-      check_in_time: now,
-      check_in_lat: lat,
-      check_in_lng: lng,
-      check_in_address: address,
-      check_out_time: null,
-      check_out_lat: null,
-      check_out_lng: null,
-      check_out_address: null,
-      total_hours: prevHours,
-      status: 'present',
+      employee_id: employee.id, date: todayStr, check_in_time: now,
+      check_in_lat: lat, check_in_lng: lng, check_in_address: address,
+      check_out_time: null, check_out_lat: null, check_out_lng: null, check_out_address: null,
+      total_hours: record?.total_hours || 0, status: 'present',
     })
     if (error) { setLocErr(error.message); return }
-
-    await addPunch({
-      attendance_id: data.id,
-      employee_id: employee.id,
-      punch_type: 'check_in',
-      punch_time: now,
-      lat, lng, address,
-    })
-
-    setRecord(data)
-    await load()
+    await addPunch({ attendance_id: data.id, employee_id: employee.id, punch_type: 'check_in', punch_time: now, lat, lng, address })
+    setRecord(data); await load()
   }
 
-  // Shared write path for check-out, same lat/lng-nullable shape as above.
   const writeCheckOut = async (lat, lng, address) => {
     const now = new Date()
-    await addPunch({
-      attendance_id: record.id,
-      employee_id: employee.id,
-      punch_type: 'check_out',
-      punch_time: now.toISOString(),
-      lat, lng, address,
-    })
-
-    // Recalculate total hours from all punches (the checkout punch above is already included)
+    await addPunch({ attendance_id: record.id, employee_id: employee.id, punch_type: 'check_out', punch_time: now.toISOString(), lat, lng, address })
     const { data: allPunches } = await fetchPunches(record.id)
     const totalHours = calcHoursFromPunches(allPunches || [])
-
     const { data, error } = await checkOut(record.id, {
-      check_out_time: now.toISOString(),
-      check_out_lat: lat,
-      check_out_lng: lng,
-      check_out_address: address,
-      total_hours: totalHours,
+      check_out_time: now.toISOString(), check_out_lat: lat, check_out_lng: lng, check_out_address: address, total_hours: totalHours,
     })
     if (error) { setLocErr(error.message); return }
-
-    setRecord(data)
-    await load()
+    setRecord(data); await load()
   }
 
   const handleCheckIn = async () => {
-    setLocErr('')
-    setLocating(true)
-    try {
-      const { lat, lng } = await getLocation()
-      const address = await reverseGeocode(lat, lng)
-      await writeCheckIn(lat, lng, address)
-      setGeoDenied(false)
-    } catch (e) {
-      setLocErr(e.message)
-      setGeoDenied(true)
-    } finally {
-      setLocating(false)
-    }
+    setLocErr(''); setLocating(true)
+    try { const { lat, lng } = await getLocation(); await writeCheckIn(lat, lng, await reverseGeocode(lat, lng)); setGeoDenied(false) }
+    catch (e) { setLocErr(e.message); setGeoDenied(true) } finally { setLocating(false) }
   }
-
   const handleCheckOut = async () => {
     if (!record) return
-    setLocErr('')
-    setLocating(true)
-    try {
-      const { lat, lng } = await getLocation()
-      const address = await reverseGeocode(lat, lng)
-      await writeCheckOut(lat, lng, address)
-      setGeoDenied(false)
-    } catch (e) {
-      setLocErr(e.message)
-      setGeoDenied(true)
-    } finally {
-      setLocating(false)
-    }
+    setLocErr(''); setLocating(true)
+    try { const { lat, lng } = await getLocation(); await writeCheckOut(lat, lng, await reverseGeocode(lat, lng)); setGeoDenied(false) }
+    catch (e) { setLocErr(e.message); setGeoDenied(true) } finally { setLocating(false) }
   }
-
-  // Manual fallback when geolocation is denied/unavailable — same write
-  // path, just with no coordinates and an operator-entered address.
   const handleManualSubmit = async () => {
     if (!manualLocation.trim()) { setLocErr('Enter a location.'); return }
-    setLocErr('')
-    setLocating(true)
+    setLocErr(''); setLocating(true)
     try {
       const address = manualNotes.trim() ? `${manualLocation.trim()} — ${manualNotes.trim()}` : manualLocation.trim()
-      if (hasAnyPunch && isCurrentlyIn) {
-        await writeCheckOut(null, null, address)
-      } else {
-        await writeCheckIn(null, null, address)
-      }
-      setGeoDenied(false)
-      setManualLocation('')
-      setManualNotes('')
-    } finally {
-      setLocating(false)
-    }
+      if (hasAnyPunch && isCurrentlyIn) await writeCheckOut(null, null, address)
+      else await writeCheckIn(null, null, address)
+      setGeoDenied(false); setManualLocation(''); setManualNotes('')
+    } finally { setLocating(false) }
   }
 
-  // Submit regularization request for a day with missing checkout
   const submitRegularization = async () => {
     if (!regForm?.reason?.trim()) return
     setRegSaving(true)
-
-    // Get approver
     const { data: approverId } = await getApproverForEmployee(employee.id)
-
     const { error } = await createRegularization({
-      attendance_id: regForm.attendanceId,
-      employee_id: employee.id,
-      approver_id: approverId || null,
-      reason: regForm.reason.trim(),
-      check_out_time: regForm.checkOutTime || null,
+      attendance_id: regForm.attendanceId, employee_id: employee.id, approver_id: approverId || null,
+      reason: regForm.reason.trim(), check_out_time: regForm.checkOutTime || null,
     })
-
-    if (!error) {
-      // Mark attendance as incomplete (pending regularization)
-      await updateAttendanceStatus(regForm.attendanceId, 'incomplete')
-    }
-
-    setRegSaving(false)
-    setRegForm(null)
-    load()
+    if (!error) await updateAttendanceStatus(regForm.attendanceId, 'incomplete')
+    setRegSaving(false); setRegForm(null); load()
   }
 
   if (loading) return <Spinner />
 
-  const todayDate  = new Date()
-  const dayName    = todayDate.toLocaleDateString('en-IN', { weekday: 'long' })
-  const dateStr    = todayDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
-
-  // Find incomplete days (checked in but not out, in the past)
-  const incompleteDays = history.filter(h =>
-    h.date < todayStr &&
-    h.check_in_time &&
-    !h.check_out_time &&
-    h.status !== 'incomplete' // not already requested
-  )
-
-  // Check if a regularization already exists for a given attendance
-  const hasRegRequest = (attendanceId) => regs.some(r => r.attendance_id === attendanceId)
+  const incompleteDays = history.filter(h => h.date < todayStr && h.check_in_time && !h.check_out_time && h.status !== 'incomplete')
+  const hasRegRequest = (id) => regs.some(r => r.attendance_id === id)
+  const hours = record?.total_hours || 0
+  const ringPct = Math.min(100, (hours / MIN_HOURS) * 100)
 
   return (
-    <div>
-      {/* ── Missing checkout warnings ── */}
-      {incompleteDays.length > 0 && (
-        <div style={{ marginBottom: 20 }}>
-          {incompleteDays.filter(d => !hasRegRequest(d.id)).map(day => (
-            <div key={day.id} style={{
-              ...card, marginBottom: 10, border: `1px solid ${C.red}`,
-              background: C.redBg,
-            }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: C.red, marginBottom: 4 }}>
-                    Missing Check-Out
-                  </div>
-                  <div style={{ fontSize: 12, color: C.red }}>
-                    {formatDate(day.date)} — Checked in at {formatTime(day.check_in_time)} but no check-out recorded.
-                    This day will be marked as <strong>leave</strong> unless regularized.
-                  </div>
-                </div>
-                <button
-                  onClick={() => setRegForm({
-                    attendanceId: day.id,
-                    date: day.date,
-                    checkInTime: day.check_in_time,
-                    reason: '',
-                    checkOutTime: '',
-                  })}
-                  style={{ ...btnStyle(C.red, '#fff'), padding: '6px 12px', fontSize: 11, flexShrink: 0, marginLeft: 10 }}
-                >
-                  Regularize
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-      {/* ── Regularization form modal ── */}
+      {/* Missing-checkout warnings */}
+      {incompleteDays.filter(d => !hasRegRequest(d.id)).map(day => (
+        <div key={day.id} style={{ ...card, border: `1px solid ${C.redLine}`, background: C.redBg }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.red, marginBottom: 4 }}>Missing check-out — {formatDate(day.date)}</div>
+              <div style={{ fontSize: 12, color: C.red }}>Checked in at {formatTime(day.check_in_time)} with no check-out. This day is marked as leave unless regularized.</div>
+            </div>
+            <Btn sm variant="danger" onClick={() => setRegForm({ attendanceId: day.id, date: day.date, checkInTime: day.check_in_time, reason: '', checkOutTime: '' })}>Regularize</Btn>
+          </div>
+        </div>
+      ))}
+
       {regForm && (
-        <div style={{
-          ...card, marginBottom: 20, border: `1px solid ${C.amber}`,
-          background: C.amberBg,
-        }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: '#854F0B', marginBottom: 4 }}>
-            Request Regularization — {formatDate(regForm.date)}
-          </div>
-          <div style={{ fontSize: 12, color: '#854F0B', marginBottom: 12 }}>
-            Checked in at {formatTime(regForm.checkInTime)}. Please provide the reason for missing checkout and your approximate check-out time.
-          </div>
-          <Field label="Proposed Check-Out Time">
-            <input
-              type="time"
-              value={regForm.checkOutTime}
-              onChange={e => setRegForm(f => ({ ...f, checkOutTime: e.target.value }))}
-              style={inputStyle()}
-            />
+        <div style={{ ...card, border: `1px solid ${C.amberLine}`, background: '#fdfaf4' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#8a6a22', marginBottom: 4 }}>Request regularization — {formatDate(regForm.date)}</div>
+          <div style={{ fontSize: 12, color: '#8a6a22', marginBottom: 12 }}>Checked in at {formatTime(regForm.checkInTime)}. Give a reason and your approximate check-out time.</div>
+          <Field label="Proposed check-out time">
+            <input type="time" value={regForm.checkOutTime} onChange={e => setRegForm(f => ({ ...f, checkOutTime: e.target.value }))} style={inputStyle()} />
           </Field>
           <Field label="Reason">
-            <input
-              value={regForm.reason}
-              onChange={e => setRegForm(f => ({ ...f, reason: e.target.value }))}
-              placeholder="e.g., Forgot to check out, system was down"
-              style={inputStyle()}
-            />
+            <input value={regForm.reason} onChange={e => setRegForm(f => ({ ...f, reason: e.target.value }))} placeholder="e.g. Forgot to check out, system was down" style={inputStyle()} />
           </Field>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              onClick={submitRegularization}
-              disabled={regSaving || !regForm.reason.trim()}
-              style={{ ...btnStyle(C.green, '#fff'), flex: 1, opacity: regSaving ? 0.7 : 1 }}
-            >
-              {regSaving ? 'Submitting…' : 'Submit Request'}
-            </button>
-            <button
-              onClick={() => setRegForm(null)}
-              style={{ ...btnStyle(C.bgSec, C.textSec), padding: '8px 16px' }}
-            >
-              Cancel
-            </button>
+            <Btn full disabled={regSaving || !regForm.reason.trim()} onClick={submitRegularization}>{regSaving ? 'Submitting…' : 'Submit request'}</Btn>
+            <Btn variant="ghost" onClick={() => setRegForm(null)}>Cancel</Btn>
           </div>
         </div>
       )}
 
-      {/* ── Today card ── */}
-      <div style={{ ...card, marginBottom: 20 }}>
-        <div style={{ fontSize: 11, color: C.textTert, marginBottom: 2 }}>{dayName}</div>
-        <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 16 }}>{dateStr}</div>
-
-        {/* Not yet checked in */}
-        {!hasAnyPunch && (
-          <div style={{ textAlign: 'center', paddingBottom: 4 }}>
-            <div style={{ fontSize: 13, color: C.textSec, marginBottom: 18 }}>
-              You haven't checked in yet
-            </div>
-            <button
-              onClick={handleCheckIn}
-              disabled={locating}
-              style={{
-                background: C.green, color: '#fff', border: 'none', borderRadius: 12,
-                padding: '14px 0', fontSize: 15, fontWeight: 600, cursor: 'pointer',
-                opacity: locating ? 0.7 : 1, width: '100%',
-              }}
-            >
-              {locating ? '📍 Getting location…' : '✓  Check In'}
-            </button>
-          </div>
-        )}
-
-        {/* Currently checked in (can check out) */}
-        {hasAnyPunch && isCurrentlyIn && (
-          <div>
-            <div style={{ background: C.greenBg, borderRadius: 10, padding: '12px 14px', marginBottom: 14 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontSize: 11, color: '#0F6E56', marginBottom: 2 }}>
-                    Checked in at {sessionCount > 1 ? `(Session ${sessionCount})` : ''}
-                  </div>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: C.green, lineHeight: 1 }}>
-                    {formatTime(lastPunch.punch_time)}
-                  </div>
-                </div>
-                {record?.total_hours > 0 && (
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 10, color: '#0F6E56' }}>Accumulated</div>
-                    <div style={{ fontSize: 16, fontWeight: 600, color: C.green }}>{record.total_hours.toFixed(1)}h</div>
-                  </div>
-                )}
+      <div className="split-2" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, alignItems: 'start' }}>
+        {/* Today */}
+        <div style={{ ...card, padding: 26 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 28, flexWrap: 'wrap' }}>
+            <div style={{ width: 132, height: 132, flex: 'none', borderRadius: '50%', background: `conic-gradient(#3a76ad ${ringPct}%, ${C.lineSoft} ${ringPct}%)`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ width: 106, height: 106, borderRadius: '50%', background: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ fontFamily: C.serif, fontSize: 30, lineHeight: 1 }}>{hours.toFixed(1)}</div>
+                <div style={{ fontSize: 10.5, color: C.muted, letterSpacing: '0.06em' }}>OF 8.0 H</div>
               </div>
-              {lastPunch.address && (
-                <div style={{ fontSize: 11, color: '#0F6E56', marginTop: 6 }}>📍 {lastPunch.address}</div>
+            </div>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <div style={{ fontSize: 12.5, color: C.sub }}>{new Date().toLocaleDateString('en-IN', { weekday: 'long' })}</div>
+              <div style={{ fontFamily: C.serif, fontSize: 24, marginTop: 2 }}>{new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+              <div style={{ display: 'flex', gap: 22, marginTop: 16, flexWrap: 'wrap' }}>
+                {[
+                  ['First in', formatTime(punches[0]?.punch_time)],
+                  ['Last out', formatTime(!isCurrentlyIn ? lastPunch?.punch_time : null)],
+                  ['Sessions', String(sessionCount)],
+                ].map(([k, v]) => (
+                  <div key={k}>
+                    <div style={{ fontSize: 10.5, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.muted }}>{k}</div>
+                    <Mono style={{ fontSize: 15, marginTop: 3, display: 'block', color: C.body }}>{v}</Mono>
+                  </div>
+                ))}
+              </div>
+              {!hasAnyPunch && (
+                <Btn full style={{ marginTop: 22, height: 44 }} disabled={locating} onClick={handleCheckIn}>{locating ? 'Getting location…' : 'Check in'}</Btn>
+              )}
+              {hasAnyPunch && isCurrentlyIn && (
+                <Btn full style={{ marginTop: 22, height: 44, background: '#b0761d' }} disabled={locating} onClick={handleCheckOut}>{locating ? 'Getting location…' : 'Check out'}</Btn>
+              )}
+              {hasAnyPunch && !isCurrentlyIn && (
+                <Btn full style={{ marginTop: 22, height: 44 }} disabled={locating} onClick={handleCheckIn}>{locating ? 'Getting location…' : 'Check in again'}</Btn>
               )}
             </div>
-            <button
-              onClick={handleCheckOut}
-              disabled={locating}
-              style={{
-                background: C.amber, color: '#fff', border: 'none', borderRadius: 12,
-                padding: '14px 0', fontSize: 15, fontWeight: 600, cursor: 'pointer',
-                opacity: locating ? 0.7 : 1, width: '100%',
-              }}
-            >
-              {locating ? '📍 Getting location…' : '✗  Check Out'}
-            </button>
           </div>
-        )}
+          {lastPunch?.address && isCurrentlyIn && <div style={{ fontSize: 11.5, color: C.sub, marginTop: 14 }}>📍 {lastPunch.address}</div>}
+          {locErr && <div style={{ background: C.redBg, color: C.red, border: `1px solid ${C.redLine}`, fontSize: 12, padding: '9px 12px', borderRadius: 9, marginTop: 12 }}>{locErr}</div>}
 
-        {/* Checked out — show summary + option to check in again */}
-        {hasAnyPunch && !isCurrentlyIn && (
-          <div>
-            {/* Session summary */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-              <div style={{ background: C.greenBg, borderRadius: 10, padding: '10px 12px' }}>
-                <div style={{ fontSize: 10, color: '#0F6E56', marginBottom: 2 }}>First Check In</div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: C.green }}>
-                  {formatTime(punches[0]?.punch_time)}
+          {punches.length > 0 && (
+            <div style={{ marginTop: 22, paddingTop: 18, borderTop: `1px solid ${C.lineSoft}` }}>
+              <SecTitle>Today's punches</SecTitle>
+              {punches.map((p, i) => (
+                <div key={p.id || i} style={{ display: 'grid', gridTemplateColumns: '14px 84px minmax(0,1fr) auto', gap: 12, alignItems: 'center', padding: '10px 0', borderBottom: i < punches.length - 1 ? `1px solid ${C.rowLine}` : 'none' }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: p.punch_type === 'check_in' ? C.greenDot : '#c2882a' }} />
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>{p.punch_type === 'check_in' ? 'Check in' : 'Check out'}</span>
+                  <span style={{ fontSize: 12, color: C.sub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.address || '—'}</span>
+                  <Mono style={{ fontSize: 12.5, color: C.body }}>{formatTime(p.punch_time)}</Mono>
                 </div>
-              </div>
-              <div style={{ background: C.amberBg, borderRadius: 10, padding: '10px 12px' }}>
-                <div style={{ fontSize: 10, color: '#854F0B', marginBottom: 2 }}>Last Check Out</div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: C.amber }}>
-                  {formatTime(lastPunch?.punch_time)}
-                </div>
-              </div>
+              ))}
             </div>
-
-            {/* Total hours with 8hr indicator */}
-            <div style={{
-              background: record?.total_hours >= MIN_HOURS ? C.greenBg : C.amberBg,
-              borderRadius: 8, padding: '10px 0', textAlign: 'center', marginBottom: 10,
-            }}>
-              <span style={{ fontSize: 13, color: C.textSec }}>Total hours: </span>
-              <span style={{ fontSize: 16, fontWeight: 700 }}>{record?.total_hours?.toFixed(1)}h</span>
-              {record?.total_hours < MIN_HOURS && (
-                <span style={{ fontSize: 11, color: C.amber, marginLeft: 8 }}>
-                  ({(MIN_HOURS - record.total_hours).toFixed(1)}h remaining for min {MIN_HOURS}h)
-                </span>
-              )}
-              {record?.total_hours >= MIN_HOURS && (
-                <span style={{ fontSize: 11, color: '#0F6E56', marginLeft: 8 }}>✓ Min {MIN_HOURS}h met</span>
-              )}
-            </div>
-
-            {sessionCount > 0 && (
-              <div style={{ fontSize: 11, color: C.textTert, textAlign: 'center', marginBottom: 10 }}>
-                {sessionCount} session{sessionCount > 1 ? 's' : ''} today
-              </div>
-            )}
-
-            {/* Allow re-check-in */}
-            <button
-              onClick={handleCheckIn}
-              disabled={locating}
-              style={{
-                background: C.blue, color: '#fff', border: 'none', borderRadius: 12,
-                padding: '12px 0', fontSize: 14, fontWeight: 600, cursor: 'pointer',
-                opacity: locating ? 0.7 : 1, width: '100%',
-              }}
-            >
-              {locating ? '📍 Getting location…' : '✓  Check In Again'}
-            </button>
-          </div>
-        )}
-
-        {locErr && (
-          <div style={{ background: C.redBg, color: C.red, fontSize: 12, padding: '9px 12px', borderRadius: 8, marginTop: 12 }}>
-            {locErr}
-          </div>
-        )}
-      </div>
-
-      {/* ── Manual location fallback — shown when geolocation fails/is denied ── */}
-      {geoDenied && (
-        <div style={{ ...card, marginBottom: 20, border: `1px solid ${C.red}55`, background: C.redBg }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: C.red, marginBottom: 6 }}>
-            Location access is blocked
-          </div>
-          <div style={{ fontSize: 12, color: C.textSec, marginBottom: 14 }}>
-            You can still {hasAnyPunch && isCurrentlyIn ? 'check out' : 'check in'} — enter your location manually below.
-          </div>
-          <Field label="Location">
-            <input
-              value={manualLocation}
-              onChange={e => setManualLocation(e.target.value)}
-              placeholder="e.g. Bengaluru Office, Client Site"
-              style={inputStyle()}
-            />
-          </Field>
-          <Field label="Notes (optional)">
-            <input
-              value={manualNotes}
-              onChange={e => setManualNotes(e.target.value)}
-              placeholder="Optional context for your approver"
-              style={inputStyle()}
-            />
-          </Field>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              onClick={handleManualSubmit}
-              disabled={locating || !manualLocation.trim()}
-              style={{ ...btnStyle(C.green, '#fff'), flex: 1, opacity: locating ? 0.7 : 1 }}
-            >
-              {locating ? 'Saving…' : `${hasAnyPunch && isCurrentlyIn ? 'Check Out' : 'Check In'} With This Location`}
-            </button>
-            <button
-              onClick={() => { setGeoDenied(false); setLocErr('') }}
-              style={{ ...btnStyle(C.bgSec, C.textSec), padding: '8px 16px' }}
-            >
-              Try Location Again
-            </button>
-          </div>
+          )}
         </div>
-      )}
 
-      {/* ── Today's punch log ── */}
-      {punches.length > 1 && (
-        <>
-          <SecTitle>Today's Punch Log</SecTitle>
-          <div style={{ ...card, padding: 0, overflow: 'hidden', marginBottom: 20 }}>
-            {punches.map((p, i) => (
-              <div key={p.id || i} style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '8px 14px',
-                borderBottom: i < punches.length - 1 ? `0.5px solid ${C.border}` : 'none',
-              }}>
-                <div style={{
-                  width: 8, height: 8, borderRadius: '50%',
-                  background: p.punch_type === 'check_in' ? C.green : C.amber,
-                  flexShrink: 0,
-                }} />
-                <div style={{ flex: 1 }}>
-                  <span style={{ fontSize: 12, fontWeight: 500 }}>
-                    {p.punch_type === 'check_in' ? 'Check In' : 'Check Out'}
-                  </span>
-                  {p.address && (
-                    <span style={{ fontSize: 10, color: C.textTert, marginLeft: 8 }}>📍 {p.address}</span>
-                  )}
-                </div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: C.textSec }}>
-                  {formatTime(p.punch_time)}
-                </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Manual fallback */}
+          {geoDenied && (
+            <div style={{ ...card, border: `1px solid ${C.redLine}`, background: C.redBg }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.red, marginBottom: 6 }}>Location access is blocked</div>
+              <div style={{ fontSize: 12, color: C.sub, marginBottom: 14 }}>You can still {hasAnyPunch && isCurrentlyIn ? 'check out' : 'check in'} — enter your location manually.</div>
+              <Field label="Location"><input value={manualLocation} onChange={e => setManualLocation(e.target.value)} placeholder="e.g. Chennai Office, Client Site" style={inputStyle()} /></Field>
+              <Field label="Notes (optional)"><input value={manualNotes} onChange={e => setManualNotes(e.target.value)} placeholder="Optional context for your approver" style={inputStyle()} /></Field>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Btn full disabled={locating || !manualLocation.trim()} onClick={handleManualSubmit}>{locating ? 'Saving…' : `${hasAnyPunch && isCurrentlyIn ? 'Check out' : 'Check in'} with this location`}</Btn>
+                <Btn variant="ghost" onClick={() => { setGeoDenied(false); setLocErr('') }}>Retry GPS</Btn>
               </div>
-            ))}
-          </div>
-        </>
-      )}
-
-      {/* ── This week summary ── */}
-      <SecTitle>This week</SecTitle>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, marginBottom: 24 }}>
-        {weekDays.map((d, i) => {
-          const rec      = history.find(h => h.date === d)
-          const isToday  = d === todayStr
-          const isPast   = d < todayStr
-          const hasIn    = !!rec?.check_in_time
-          const hasOut   = !!rec?.check_out_time
-          const meetsMin = rec?.total_hours >= MIN_HOURS
-          const isIncomplete = hasIn && !hasOut && isPast
-          const dotColor = isIncomplete ? C.red
-            : hasOut ? (meetsMin ? C.green : C.amber)
-            : hasIn ? C.amber
-            : (isPast ? C.red : C.bgTert)
-          return (
-            <div key={d} style={{
-              background: isToday ? C.blueBg : C.bg,
-              border: `0.5px solid ${isToday ? C.blue : isIncomplete ? C.red : C.border}`,
-              borderRadius: 10, padding: '10px 4px', textAlign: 'center',
-            }}>
-              <div style={{ fontSize: 9, color: isToday ? C.blue : C.textTert, fontWeight: isToday ? 600 : 400, textTransform: 'uppercase' }}>
-                {DAY_SHORT[i]}
-              </div>
-              <div style={{ fontSize: 14, fontWeight: 600, margin: '4px 0' }}>
-                {new Date(d + 'T12:00:00').getDate()}
-              </div>
-              <div style={{ width: 7, height: 7, borderRadius: '50%', background: dotColor, margin: '0 auto 3px' }} />
-              {hasOut && (
-                <div style={{ fontSize: 9, color: meetsMin ? C.green : C.amber, fontWeight: 600 }}>
-                  {rec.total_hours?.toFixed(1)}h
-                </div>
-              )}
-              {hasIn && !hasOut && isToday && (
-                <div style={{ fontSize: 9, color: C.amber }}>In</div>
-              )}
-              {isIncomplete && (
-                <div style={{ fontSize: 8, color: C.red, fontWeight: 500 }}>No out</div>
-              )}
-              {isPast && !hasIn && (
-                <div style={{ fontSize: 9, color: C.red }}>—</div>
-              )}
             </div>
-          )
-        })}
+          )}
+
+          {/* This week */}
+          <Panel title="This week" right={<Mono style={{ fontSize: 11.5, color: C.sub }}>{history.filter(h => weekDays.includes(h.date)).reduce((s, h) => s + (h.total_hours || 0), 0).toFixed(1)} / 40.0 h</Mono>}>
+            {weekDays.map((d, i) => {
+              const rec = history.find(h => h.date === d)
+              const h = rec?.total_hours || 0
+              const isToday = d === todayStr
+              const isPast = d < todayStr
+              const incomplete = rec?.check_in_time && !rec?.check_out_time && isPast
+              const fg = incomplete ? C.red : h >= MIN_HOURS ? '#1f7350' : h > 0 ? '#b0761d' : C.faint
+              return (
+                <div key={d} style={{ display: 'grid', gridTemplateColumns: '34px minmax(0,1fr) 46px', gap: 12, alignItems: 'center', padding: '8px 0' }}>
+                  <span style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: isToday ? C.navy : C.muted, fontWeight: isToday ? 600 : 400 }}>{DAY_SHORT[i]}</span>
+                  <div style={{ height: 6, borderRadius: 3, background: C.lineSoft, overflow: 'hidden' }}>
+                    <div style={{ height: 6, width: `${Math.min(100, (h / MIN_HOURS) * 100)}%`, background: fg }} />
+                  </div>
+                  <Mono style={{ fontSize: 11.5, color: fg, textAlign: 'right' }}>{incomplete ? 'no out' : h ? h.toFixed(1) : '—'}</Mono>
+                </div>
+              )
+            })}
+          </Panel>
+
+          {regs.length > 0 && (
+            <Panel title="Regularization requests">
+              {regs.slice(0, 5).map(r => (
+                <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 0', borderBottom: `1px solid ${C.rowLine}` }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>{formatDate(r.attendance?.date)}</div>
+                    <div style={{ fontSize: 11.5, color: C.sub }}>{r.reason}{r.reject_reason ? ` · ${r.reject_reason}` : ''}</div>
+                  </div>
+                  <Badge status={r.status} />
+                </div>
+              ))}
+            </Panel>
+          )}
+        </div>
       </div>
 
-      {/* ── Regularization requests ── */}
-      {regs.length > 0 && (
-        <>
-          <SecTitle>Regularization Requests</SecTitle>
-          {regs.slice(0, 5).map(r => (
-            <div key={r.id} style={{ ...card, marginBottom: 8 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 500 }}>{formatDate(r.attendance?.date)}</div>
-                  <div style={{ fontSize: 11, color: C.textSec, marginTop: 2 }}>{r.reason}</div>
-                </div>
-                <Badge status={r.status} />
-              </div>
-              {r.reject_reason && (
-                <div style={{ fontSize: 11, color: C.red, marginTop: 4 }}>Reason: {r.reject_reason}</div>
-              )}
-            </div>
-          ))}
-        </>
-      )}
-
-      {/* ── Recent history ── */}
+      {/* Recent history */}
       {history.length > 0 && (
-        <>
-          <SecTitle>Recent Attendance</SecTitle>
-          {history.slice(0, 10).map(h => {
+        <Panel title="Recent attendance">
+          {history.slice(0, 12).map(h => {
             const meetsMin = h.total_hours >= MIN_HOURS
-            const isIncomplete = h.check_in_time && !h.check_out_time && h.date < todayStr
+            const incomplete = h.check_in_time && !h.check_out_time && h.date < todayStr
             return (
-              <div key={h.id} style={{ ...card, marginBottom: 8 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500 }}>
-                      {new Date(h.date + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
-                    </div>
-                    <div style={{ fontSize: 11, color: C.textSec, marginTop: 3 }}>
-                      In: {formatTime(h.check_in_time)} &nbsp;·&nbsp; Out: {formatTime(h.check_out_time)}
-                    </div>
-                    {h.check_in_address && (
-                      <div style={{ fontSize: 10, color: C.textTert, marginTop: 3 }}>
-                        📍 {h.check_in_address}
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ flexShrink: 0, marginLeft: 10 }}>
-                    {isIncomplete ? (
-                      <span style={{ background: C.redBg, color: C.red, fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 20 }}>
-                        No checkout
-                      </span>
-                    ) : h.total_hours != null ? (
-                      <span style={{
-                        background: meetsMin ? C.greenBg : C.amberBg,
-                        color: meetsMin ? '#0F6E56' : '#854F0B',
-                        fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 20,
-                      }}>
-                        {h.total_hours.toFixed(1)}h
-                      </span>
-                    ) : h.check_in_time ? (
-                      <span style={{ background: C.amberBg, color: C.amber, fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 20 }}>
-                        In only
-                      </span>
-                    ) : (
-                      <span style={{ background: C.redBg, color: C.red, fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 20 }}>
-                        Absent
-                      </span>
-                    )}
-                  </div>
+              <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '10px 0', borderBottom: `1px solid ${C.rowLine}`, gap: 12 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>{new Date(h.date + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}</div>
+                  <div style={{ fontSize: 11.5, color: C.sub, marginTop: 2 }}>In {formatTime(h.check_in_time)} · Out {formatTime(h.check_out_time)}{h.check_in_address ? ` · ${h.check_in_address}` : ''}</div>
                 </div>
+                <span style={{ flexShrink: 0, fontFamily: C.mono, fontSize: 12, fontWeight: 500, borderRadius: 20, padding: '3px 10px',
+                  background: incomplete ? C.redBg : meetsMin ? C.greenBg : h.check_in_time ? C.amberBg : C.redBg,
+                  color: incomplete ? C.red : meetsMin ? '#1f7350' : h.check_in_time ? '#8a6a22' : C.red }}>
+                  {incomplete ? 'no out' : h.total_hours != null ? `${h.total_hours.toFixed(1)}h` : h.check_in_time ? 'in only' : 'absent'}
+                </span>
               </div>
             )
           })}
-        </>
+        </Panel>
       )}
     </div>
   )
