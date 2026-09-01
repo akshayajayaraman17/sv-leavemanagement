@@ -14,7 +14,7 @@ import { generateEmpCode } from '../lib/employeeCode'
 import BulkAddEmployees from './BulkAddEmployees'
 import {
   Avatar, Badge, Btn, C, Confirm, Empty, Field, Modal, Mono, OffboardModal, Panel,
-  ProgressBar, ResetPasswordModal, SecTitle, Segmented, Spinner, Tabs, card, inputStyle, formatDate,
+  ResetPasswordModal, SecTitle, Segmented, Spinner, card, inputStyle, formatDate,
 } from './UI'
 
 const ROLES = { admin: 'Admin', manager: 'Manager', employee: 'Employee' }
@@ -30,7 +30,7 @@ const noteBox = (tone) => ({
 
 // ── Add/Edit Employee Form ────────────────────────────────────────────────────
 
-function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBack, onToast }) {
+function EmployeeForm({ initial, employees, onSave, onBack, onToast, onReset, onDeactivate, onReactivate }) {
   const isEdit = !!initial?.id
   const [form, setForm] = useState({
     full_name:    initial?.full_name    || '',
@@ -59,7 +59,6 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
   const [compDone, setCompDone]         = useState(false)
   const [errs, setErrs]                 = useState({})
   const [saving, setSaving]             = useState(false)
-  const [activeTab, setActiveTab]       = useState(initialTab)
   const [adminConfirmOpen, setAdminConfirmOpen] = useState(false)
 
   // Activity tab — leave/timesheet/attendance history, folded in from
@@ -128,10 +127,6 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
       setHolidaySet(new Set((data || []).map(h => h.holiday_date)))
     })
   }, [initial?.id])
-
-  useEffect(() => {
-    setActiveTab(initialTab)
-  }, [initialTab])
 
   const [salForm, setSalForm] = useState({
     basic_salary: '', hra: '', transport_allowance: '',
@@ -302,29 +297,27 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
 
   const toggleApprover = (id) => setSelAppr(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])
 
-  const tabItems = [
-    { id: 'details', label: 'Details' },
-    { id: 'salary', label: 'Salary' },
-    { id: 'approvers', label: 'Approvers' },
-    ...(isEdit ? [
-      { id: 'leave', label: 'Leave' },
-      { id: 'comp', label: 'Comp off' },
-      { id: 'activity', label: 'Activity' },
-    ] : []),
-  ]
+  const sec = { borderTop: `1px solid ${C.lineSoft}`, paddingTop: 20, marginTop: 22 }
 
   return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-        <Btn variant="ghost" sm onClick={onBack}>‹ Back</Btn>
-        <div style={{ fontFamily: C.serif, fontSize: 21 }}>{isEdit ? `Edit ${initial.full_name}` : 'Add new employee'}</div>
+    <div style={{ ...card, padding: 0, overflow: 'hidden', maxWidth: 1080 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, padding: '22px 26px', borderBottom: `1px solid ${C.lineSoft}` }}>
+        <Avatar initials={isEdit ? initial.avatar_initials : (form.full_name.slice(0, 2).toUpperCase() || '—')} size={46} bg={C.bgTert} color={C.sub} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: C.serif, fontSize: 22, lineHeight: 1.2 }}>{isEdit ? initial.full_name : (form.full_name || 'Add new employee')}</div>
+          <div style={{ fontSize: 12.5, color: C.sub, marginTop: 3 }}>
+            {[form.designation, form.department].filter(Boolean).join(' – ') || 'New employee'}
+            {form.employee_code ? <> · <Mono>{form.employee_code}</Mono></> : null}
+          </div>
+        </div>
+        <button onClick={onBack} aria-label="Close" style={{ background: 'none', border: 'none', fontSize: 20, color: C.muted, cursor: 'pointer', lineHeight: 1, padding: 4 }}>×</button>
       </div>
 
-      <Tabs items={tabItems} value={activeTab} onChange={setActiveTab} />
-
-      {/* Details tab */}
-      {activeTab === 'details' && (
+      <div style={{ padding: '20px 26px 24px' }}>
+        {/* Employment details */}
         <div>
+          <SecTitle>Employment details</SecTitle>
           <div className="form-grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
             <Field label="Full name" error={errs.full_name}>
               <input value={form.full_name} onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))} style={inputStyle(errs.full_name)} placeholder="Jane Smith" />
@@ -382,12 +375,51 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
               ))}
             </select>
           </Field>
-        </div>
-      )}
 
-      {/* Salary tab */}
-      {activeTab === 'salary' && (
-        <div>
+          {isEdit && (
+            <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${C.lineSoft}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, marginBottom: 12 }}>
+                <span style={{ color: C.sub }}>Status</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: initial.is_active ? '#1f7350' : C.red }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: initial.is_active ? C.greenDot : C.red }} />
+                  {initial.is_active ? 'Active' : 'Inactive'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <Btn variant="ghost" sm onClick={onReset}>Reset password</Btn>
+                {initial.is_active
+                  ? <Btn variant="danger" sm onClick={onDeactivate}>Deactivate employee</Btn>
+                  : <Btn variant="ghost" sm onClick={onReactivate}>Reactivate employee</Btn>}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Leave & comp off balance */}
+        {isEdit && empBalance.length > 0 && (
+          <div style={sec}>
+            <SecTitle>Leave &amp; comp off balance</SecTitle>
+            <div style={{ ...card, padding: 0, overflow: 'hidden', maxWidth: 420 }}>
+              {empBalance.map((b, i) => (
+                <div key={b.type_code} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 64px 64px', gap: 10, alignItems: 'center', padding: '11px 14px', borderTop: i ? `1px solid ${C.rowLine}` : 'none' }}>
+                  <span style={{ fontSize: 12.5, color: C.body }}>{b.label}</span>
+                  <input value={b.used} readOnly tabIndex={-1} style={{ ...inputStyle(), textAlign: 'center', padding: '6px 4px', background: C.bgSec, color: C.muted }} />
+                  <input value={b.total} readOnly tabIndex={-1} style={{ ...inputStyle(), textAlign: 'center', padding: '6px 4px', background: C.bgSec, color: C.muted }} />
+                </div>
+              ))}
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 64px 64px', gap: 10, padding: '2px 14px 9px' }}>
+                <span />
+                <span style={{ fontSize: 9.5, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.faint, textAlign: 'center' }}>used</span>
+                <span style={{ fontSize: 9.5, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.faint, textAlign: 'center' }}>total</span>
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: C.faint, marginTop: 8 }}>Change entitlement in Leave adjustments below.</div>
+          </div>
+        )}
+
+      {/* Salary */}
+      <div style={sec}>
+          <SecTitle>Salary</SecTitle>
           <div style={{ ...card, background: C.bgSec, marginBottom: 16 }}>
             <div className="form-grid-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
               {[['Gross', gross, C.ink], ['Deductions', deductions, C.red], ['Net', net, C.navy]].map(([label, val, color]) => (
@@ -420,33 +452,11 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
             </Btn>
           )}
         </div>
-      )}
 
-      {/* Leave adjustments tab */}
-      {activeTab === 'leave' && (
-        <div>
-          {empBalance.length > 0 && (
-            <>
-              <SecTitle>Current leave balance — {new Date().getFullYear()}</SecTitle>
-              <div className="balance-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
-                {empBalance.map(b => {
-                  const pct = b.total > 0 ? Math.round((b.used / b.total) * 100) : 0
-                  return (
-                    <div key={b.type_code} style={card}>
-                      <div style={{ fontSize: 11.5, color: C.sub, marginBottom: 4 }}>{b.label}</div>
-                      <div style={{ fontFamily: C.serif, fontSize: 28, color: b.color || C.ink, lineHeight: 1 }}>{b.remaining}</div>
-                      <div style={{ fontSize: 10.5, color: C.faint, marginBottom: 9 }}>of {b.total} remaining</div>
-                      <ProgressBar pct={pct} color={b.color || '#3a76ad'} />
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5 }}>
-                        <span style={{ fontSize: 10.5, color: C.faint }}>{b.used} used</span>
-                        {b.type_code === 'comp' && <span style={{ fontSize: 10.5, color: b.color }}>{b.total} earned</span>}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </>
-          )}
+      {/* Leave adjustments & records */}
+      {isEdit && (
+        <div style={sec}>
+          <SecTitle>Leave adjustments &amp; records</SecTitle>
           <div style={{ ...card, marginBottom: 16 }}>
             <SecTitle>Add leave record</SecTitle>
             <div style={{ fontSize: 12, color: C.sub, marginBottom: 12, lineHeight: 1.6 }}>
@@ -479,7 +489,6 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
             <div style={{ fontSize: 12, color: '#8a6a22', lineHeight: 1.6 }}>
               Adjust an employee's leave entitlement. Positive numbers add days, negative numbers deduct. Changes apply immediately to their balance.
             </div>
-            <Btn variant="navySoft" sm style={{ marginTop: 12 }} onClick={() => setActiveTab('comp')}>Credit comp off</Btn>
           </div>
           {leaveTypes.filter(lt => !lt.is_comp_off).map(lt => {
             const currentTotal = empBalance.find(b => b.type_code === lt.code)?.total ?? lt.annual_days
@@ -522,10 +531,11 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
           })}
         </div>
       )}
-      {activeTab === 'comp' && isEdit && (
-        <div>
+      {isEdit && (
+        <div style={sec}>
+          <SecTitle>Credit comp off</SecTitle>
           <div style={{ ...noteBox('purple'), marginBottom: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#4b3fb0', marginBottom: 4 }}>Credit comp off</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#4b3fb0', marginBottom: 4 }}>Manually credit comp off</div>
             <div style={{ fontSize: 12, color: '#4b3fb0', lineHeight: 1.6 }}>
               Manually add approved comp off days for this employee. This creates an immediately approved comp off record so the balance is updated right away.
             </div>
@@ -558,9 +568,9 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
         </div>
       )}
 
-      {/* Approvers tab */}
-      {activeTab === 'approvers' && (
-        <div>
+      {/* Approvers */}
+      <div style={sec}>
+          <SecTitle>Approvers</SecTitle>
           <div style={{ fontSize: 13, color: C.sub, marginBottom: 14, lineHeight: 1.6 }}>
             Select up to 3 approvers for this employee's leave and comp off requests. Requests go to approver #1 first, then #2, then #3. If none selected, the reporting manager is used.
           </div>
@@ -589,11 +599,11 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
             </div>
           )}
         </div>
-      )}
 
-      {/* Activity tab — read-only history, folded in from Team */}
-      {activeTab === 'activity' && isEdit && (
-        <div>
+      {/* Activity — read-only history, folded in from Team */}
+      {isEdit && (
+        <div style={sec}>
+          <SecTitle style={{ marginBottom: 14 }}>Activity</SecTitle>
           <SecTitle>Leave history</SecTitle>
           {activityLeaves.length === 0 ? <Empty text="No leave requests" /> :
             activityLeaves.map(l => (
@@ -696,13 +706,13 @@ function EmployeeForm({ initial, initialTab = 'details', employees, onSave, onBa
         </div>
       )}
 
-      {activeTab !== 'activity' && (
-        <div style={{ marginTop: 20 }}>
-          <Btn full disabled={saving} onClick={handleSaveClick}>
-            {saving ? 'Saving…' : isEdit ? 'Update employee' : 'Add employee'}
+        <div style={{ ...sec, display: 'flex', gap: 10 }}>
+          <Btn disabled={saving} onClick={handleSaveClick} style={{ minWidth: 150 }}>
+            {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Add employee'}
           </Btn>
+          <Btn variant="ghost" onClick={onBack}>Cancel</Btn>
         </div>
-      )}
+      </div>
 
       {adminConfirmOpen && (
         <Confirm
@@ -1099,7 +1109,6 @@ export default function AdminPanel({ onToast }) {
   const [loading,   setLoading]   = useState(true)
   const [view,      setView]      = useState('list')   // 'list' | 'add' | 'edit' | 'bulk'
   const [editing,   setEditing]   = useState(null)
-  const [editingTab, setEditingTab] = useState('details')
   const [confirm,   setConfirm]   = useState(null)
   const [q,         setQ]         = useState('')
 
@@ -1132,6 +1141,7 @@ export default function AdminPanel({ onToast }) {
     if (error) { onToast(typeof error === 'string' ? error : error.message, 'error'); return }
     onToast('Employee deactivated')
     setConfirm(null)
+    setView('list')
     load()
   }
 
@@ -1139,6 +1149,7 @@ export default function AdminPanel({ onToast }) {
     const { error } = await reactivateEmployee(id)
     if (error) { onToast(typeof error === 'string' ? error : error.message, 'error'); return }
     onToast('Employee reactivated')
+    setView('list')
     load()
   }
 
@@ -1199,14 +1210,34 @@ export default function AdminPanel({ onToast }) {
 
   if (view === 'add' || view === 'edit') {
     return (
-      <EmployeeForm
-        initial={view === 'edit' ? editing : null}
-        initialTab={view === 'edit' ? editingTab : 'details'}
-        employees={employees}
-        onSave={() => { setView('list'); load() }}
-        onBack={() => setView('list')}
-        onToast={onToast}
-      />
+      <div>
+        {confirm && (
+          <OffboardModal
+            name={confirm.full_name}
+            submitting={offboarding}
+            onConfirm={(details) => handleDeactivate(confirm.id, details)}
+            onCancel={() => setConfirm(null)}
+          />
+        )}
+        {resetTarget && (
+          <ResetPasswordModal
+            name={resetTarget.full_name}
+            submitting={resetting}
+            onConfirm={handleResetPassword}
+            onCancel={() => setResetTarget(null)}
+          />
+        )}
+        <EmployeeForm
+          initial={view === 'edit' ? editing : null}
+          employees={employees}
+          onSave={() => { setView('list'); load() }}
+          onBack={() => setView('list')}
+          onToast={onToast}
+          onReset={() => setResetTarget(editing)}
+          onDeactivate={() => setConfirm(editing)}
+          onReactivate={() => handleReactivate(editing.id)}
+        />
+      </div>
     )
   }
 
@@ -1269,7 +1300,7 @@ export default function AdminPanel({ onToast }) {
             </div>
             {filtered.map(e => (
               <div key={e.id}
-                onClick={() => { setEditing(e); setEditingTab('details'); setView('edit') }}
+                onClick={() => { setEditing(e); setView('edit') }}
                 style={{ display: 'grid', gridTemplateColumns: EMP_COLS, gap: 14, alignItems: 'center', padding: '0 22px', minHeight: 56, borderBottom: `1px solid ${C.rowLine}`, minWidth: 860, boxSizing: 'border-box', cursor: 'pointer' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0, padding: '9px 0' }}>
                   <Avatar initials={e.avatar_initials} size={28} bg={C.bgTert} color={C.sub} />
@@ -1285,7 +1316,7 @@ export default function AdminPanel({ onToast }) {
                   {!e.is_active && <span style={{ fontSize: 10, letterSpacing: '0.05em', textTransform: 'uppercase', color: C.red, border: `1px solid ${C.redLine}`, borderRadius: 20, padding: '1px 7px' }}>Inactive</span>}
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, flexWrap: 'wrap' }} onClick={ev => ev.stopPropagation()}>
-                  <button onClick={() => { setEditing(e); setEditingTab('details'); setView('edit') }} style={empActBtn}>Edit</button>
+                  <button onClick={() => { setEditing(e); setView('edit') }} style={empActBtn}>Edit</button>
                   <button onClick={() => setResetTarget(e)} style={empActBtn}>Reset</button>
                   {e.is_active
                     ? <button onClick={() => setConfirm(e)} style={{ ...empActBtn, color: C.red, borderColor: C.redLine }}>Deactivate</button>
