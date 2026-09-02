@@ -10,18 +10,42 @@ import {
 } from './lib/api'
 import { fetchNotificationFeed, getNotifSeenAt } from './lib/notifications'
 
-const Dashboard     = lazy(() => import('./components/Dashboard'))
-const Apply         = lazy(() => import('./components/ApplyLeave').then(m => ({ default: m.Apply })))
-const MyLeaves      = lazy(() => import('./components/MyLeaves'))
-const Approvals     = lazy(() => import('./components/Approvals'))
-const AdminPanel    = lazy(() => import('./components/AdminPanel'))
-const JiraSettings  = lazy(() => import('./components/JiraSettings'))
-const Attendance    = lazy(() => import('./components/Attendance'))
-const Timesheet     = lazy(() => import('./components/Timesheet'))
-const Profile       = lazy(() => import('./components/Profile'))
-const Team          = lazy(() => import('./components/Team'))
-const Notifications = lazy(() => import('./components/Notifications'))
-const Calendar      = lazy(() => import('./components/Calendar'))
+// A dynamically-imported chunk 404s when the app is redeployed (its hashed
+// filename changes) and a client is still running the previous build — every
+// lazy tab would then dead-end on the ErrorBoundary with no way back. Reload
+// once to pick up the new index + chunks; only surface the error if the retry
+// (guarded by a session flag, cleared on a successful mount below) also fails.
+const CHUNK_RELOAD_KEY = 'chunk-reload-attempted'
+const lazyTab = (factory) => lazy(() =>
+  factory()
+    .then((mod) => {
+      // A chunk loaded — the app graph is current again, so let a future
+      // stale-chunk failure get its own one-shot retry.
+      sessionStorage.removeItem(CHUNK_RELOAD_KEY)
+      return mod
+    })
+    .catch((err) => {
+      if (!sessionStorage.getItem(CHUNK_RELOAD_KEY)) {
+        sessionStorage.setItem(CHUNK_RELOAD_KEY, '1')
+        window.location.reload()
+        return new Promise(() => {}) // hold render until the reload takes over
+      }
+      throw err // retry already failed — let the ErrorBoundary show it
+    })
+)
+
+const Dashboard     = lazyTab(() => import('./components/Dashboard'))
+const Apply         = lazyTab(() => import('./components/ApplyLeave').then(m => ({ default: m.Apply })))
+const MyLeaves      = lazyTab(() => import('./components/MyLeaves'))
+const Approvals     = lazyTab(() => import('./components/Approvals'))
+const AdminPanel    = lazyTab(() => import('./components/AdminPanel'))
+const JiraSettings  = lazyTab(() => import('./components/JiraSettings'))
+const Attendance    = lazyTab(() => import('./components/Attendance'))
+const Timesheet     = lazyTab(() => import('./components/Timesheet'))
+const Profile       = lazyTab(() => import('./components/Profile'))
+const Team          = lazyTab(() => import('./components/Team'))
+const Notifications = lazyTab(() => import('./components/Notifications'))
+const Calendar      = lazyTab(() => import('./components/Calendar'))
 
 // icon = 14px-wide monochrome glyph, matching the mockup's muted nav marks.
 // group 'main' = the mockup's primary nav (shown first); group 'more' = app-only
