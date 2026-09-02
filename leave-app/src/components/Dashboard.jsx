@@ -5,7 +5,7 @@ import {
   fetchPendingForApprover, fetchPendingCompForApprover, fetchPendingTimesheets,
   fetchPendingRegularizations, decideLeave,
 } from '../lib/api'
-import { Avatar, C, Panel, Spinner, card, formatDate } from './UI'
+import { Avatar, C, Panel, Segmented, Spinner, card, formatDate } from './UI'
 import { todayStr } from '../lib/dates'
 import { punchIn, punchOut } from '../lib/attendance'
 
@@ -28,6 +28,7 @@ export default function Dashboard({ employee, onToast, onNavigate }) {
   const [teamToday, setTeamToday] = useState([])
   const [deciding, setDeciding] = useState(null)
   const [punching, setPunching] = useState(false)
+  const [teamTimeView, setTeamTimeView] = useState('in') // 'in' | 'out'
 
   useEffect(() => {
     setLoading(true)
@@ -68,7 +69,12 @@ export default function Dashboard({ employee, onToast, onNavigate }) {
           .map(e => {
             const a = attByEmp[e.id]
             if (onLeave.has(e.id)) return { ...e, state: 'leave' }
-            if (a?.check_in_time) return { ...e, state: 'in', time: fmtTime(a.check_in_time) }
+            if (a?.check_in_time) return {
+              ...e, state: 'in',
+              inTime: fmtTime(a.check_in_time),
+              outTime: a.check_out_time ? fmtTime(a.check_out_time) : null,
+              checkedOut: !!a.check_out_time,
+            }
             return { ...e, state: 'out' }
           })
           .sort((a, b) => ({ in: 0, leave: 1, out: 2 })[a.state] - ({ in: 0, leave: 1, out: 2 })[b.state])
@@ -127,6 +133,7 @@ export default function Dashboard({ employee, onToast, onNavigate }) {
   const teamIn = teamToday.filter(t => t.state === 'in').length
   const teamLeave = teamToday.filter(t => t.state === 'leave').length
   const teamOut = teamToday.filter(t => t.state === 'out').length
+  const teamDone = teamToday.filter(t => t.checkedOut).length
 
   const reqDot = { pending: '#c2882a', approved: '#3a76ad', rejected: C.red, cancelled: C.faint }
   const reqBg = { pending: '#fdfaf4', approved: '#f4f8fd', rejected: C.redBg, cancelled: C.bgTert }
@@ -186,22 +193,44 @@ export default function Dashboard({ employee, onToast, onNavigate }) {
 
       {/* ── Team today (approvers) ── */}
       {isApprover && teamToday.length > 0 && (
-        <Panel title="Team today" right={<span style={{ fontSize: 11.5, color: C.sub }}>{teamIn} in · {teamLeave} on leave · {teamOut} not in</span>}>
-          {teamToday.slice(0, 8).map(t => (
-            <div key={t.id} style={{ display: 'grid', gridTemplateColumns: '190px minmax(0,1fr) 150px', gap: 14, alignItems: 'center', padding: '9px 0', borderBottom: `1px solid ${C.rowLine}` }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                <Avatar initials={t.avatar_initials} size={26} bg={C.bgTert} color={C.sub} />
-                <span style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.full_name}</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: t.state === 'in' ? C.greenDot : t.state === 'leave' ? '#3a76ad' : '#c2882a' }} />
-                <span style={{ fontSize: 12.5, color: t.state === 'in' ? C.body : t.state === 'leave' ? '#2a5c8a' : '#8a6a22' }}>
-                  {t.state === 'in' ? 'Checked in' : t.state === 'leave' ? 'On leave' : 'Not checked in'}
-                </span>
-              </div>
-              <span style={{ fontFamily: C.mono, fontSize: 11.5, color: C.sub, textAlign: 'right' }}>{t.time || '—'}</span>
+        <Panel
+          title="Team today"
+          right={
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <span style={{ fontSize: 11.5, color: C.sub }}>
+                {teamIn} in · {teamDone} out · {teamLeave} on leave · {teamOut} not in
+              </span>
+              <Segmented
+                items={[{ id: 'in', label: 'Check-in' }, { id: 'out', label: 'Check-out' }]}
+                value={teamTimeView}
+                onChange={setTeamTimeView}
+              />
             </div>
-          ))}
+          }
+        >
+          {teamToday.slice(0, 8).map(t => {
+            const label = t.state === 'in'
+              ? (t.checkedOut ? 'Checked out' : 'Checked in')
+              : t.state === 'leave' ? 'On leave' : 'Not checked in'
+            const time = t.state === 'in'
+              ? (teamTimeView === 'out' ? (t.outTime || '—') : t.inTime)
+              : '—'
+            return (
+              <div key={t.id} style={{ display: 'grid', gridTemplateColumns: '190px minmax(0,1fr) 150px', gap: 14, alignItems: 'center', padding: '9px 0', borderBottom: `1px solid ${C.rowLine}` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                  <Avatar initials={t.avatar_initials} size={26} bg={C.bgTert} color={C.sub} />
+                  <span style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.full_name}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: t.state === 'leave' ? '#3a76ad' : t.state === 'out' ? '#c2882a' : t.checkedOut ? '#c2882a' : C.greenDot }} />
+                  <span style={{ fontSize: 12.5, color: t.state === 'in' ? (t.checkedOut ? '#8a6a22' : C.body) : t.state === 'leave' ? '#2a5c8a' : '#8a6a22' }}>
+                    {label}
+                  </span>
+                </div>
+                <span style={{ fontFamily: C.mono, fontSize: 11.5, color: C.sub, textAlign: 'right' }}>{time}</span>
+              </div>
+            )
+          })}
         </Panel>
       )}
 
