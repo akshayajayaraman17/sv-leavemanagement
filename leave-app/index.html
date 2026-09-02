@@ -12,6 +12,32 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap" rel="stylesheet">
+    <script>
+      // One-time cleanup for returning visitors: earlier builds registered a
+      // service worker that cached a stale app shell and 404'd its hashed
+      // chunks after every redeploy. This app no longer uses one. Unregister
+      // anything still installed, drop its caches, and reload exactly once
+      // (guarded) so this session runs on fresh network assets.
+      (function () {
+        if (!('serviceWorker' in navigator)) return
+        navigator.serviceWorker.getRegistrations()
+          .then(function (regs) {
+            if (!regs || !regs.length) return
+            return Promise.all(regs.map(function (r) { return r.unregister() })).then(function () {
+              if (window.caches && caches.keys) {
+                caches.keys().then(function (keys) { keys.forEach(function (k) { caches.delete(k) }) })
+              }
+              try {
+                if (!sessionStorage.getItem('sw-cleaned')) {
+                  sessionStorage.setItem('sw-cleaned', '1')
+                  location.reload()
+                }
+              } catch (e) { /* private mode — skip the reload */ }
+            })
+          })
+          .catch(function () { /* ignore */ })
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

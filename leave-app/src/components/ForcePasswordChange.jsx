@@ -20,7 +20,15 @@ export default function ForcePasswordChange({ employee }) {
     setError(''); setLoading(true)
 
     const { error: pwErr } = await supabase.auth.updateUser({ password: newPw })
-    if (pwErr) { setLoading(false); setError(pwErr.message); return }
+    if (pwErr) {
+      setLoading(false)
+      setError(
+        /session (missing|expired|not found)|not authenticated|jwt/i.test(pwErr.message || '')
+          ? 'Your sign-in session expired before this could be saved. Sign out, sign back in with your temporary password, and try again.'
+          : pwErr.message
+      )
+      return
+    }
 
     const { error: clearErr } = await clearMustChangePassword(employee.id)
     setLoading(false)
