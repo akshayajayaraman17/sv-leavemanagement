@@ -16,17 +16,24 @@ import { fetchNotificationFeed, getNotifSeenAt } from './lib/notifications'
 // once to pick up the new index + chunks; only surface the error if the retry
 // (guarded by a session flag, cleared on a successful mount below) also fails.
 const CHUNK_RELOAD_KEY = 'chunk-reload-attempted'
+// sessionStorage can throw in privacy modes / sandboxed frames — never let the
+// reload guard itself be the thing that breaks a tab.
+const guard = {
+  get: () => { try { return sessionStorage.getItem(CHUNK_RELOAD_KEY) } catch { return null } },
+  set: () => { try { sessionStorage.setItem(CHUNK_RELOAD_KEY, '1') } catch { /* ignore */ } },
+  clear: () => { try { sessionStorage.removeItem(CHUNK_RELOAD_KEY) } catch { /* ignore */ } },
+}
 const lazyTab = (factory) => lazy(() =>
   factory()
     .then((mod) => {
       // A chunk loaded — the app graph is current again, so let a future
       // stale-chunk failure get its own one-shot retry.
-      sessionStorage.removeItem(CHUNK_RELOAD_KEY)
+      guard.clear()
       return mod
     })
     .catch((err) => {
-      if (!sessionStorage.getItem(CHUNK_RELOAD_KEY)) {
-        sessionStorage.setItem(CHUNK_RELOAD_KEY, '1')
+      if (!guard.get()) {
+        guard.set()
         window.location.reload()
         return new Promise(() => {}) // hold render until the reload takes over
       }
