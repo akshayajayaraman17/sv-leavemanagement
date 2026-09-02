@@ -28,7 +28,7 @@ export default function Dashboard({ employee, onToast, onNavigate }) {
   const [teamToday, setTeamToday] = useState([])
   const [deciding, setDeciding] = useState(null)
   const [punching, setPunching] = useState(false)
-  const [teamTimeView, setTeamTimeView] = useState('in') // 'in' | 'out'
+  const [teamFilter, setTeamFilter] = useState('in') // 'in' | 'out' | 'leave'
 
   useEffect(() => {
     setLoading(true)
@@ -133,7 +133,6 @@ export default function Dashboard({ employee, onToast, onNavigate }) {
   const teamIn = teamToday.filter(t => t.state === 'in').length
   const teamLeave = teamToday.filter(t => t.state === 'leave').length
   const teamOut = teamToday.filter(t => t.state === 'out').length
-  const teamDone = teamToday.filter(t => t.checkedOut).length
 
   const reqDot = { pending: '#c2882a', approved: '#3a76ad', rejected: C.red, cancelled: C.faint }
   const reqBg = { pending: '#fdfaf4', approved: '#f4f8fd', rejected: C.redBg, cancelled: C.bgTert }
@@ -192,47 +191,60 @@ export default function Dashboard({ employee, onToast, onNavigate }) {
       )}
 
       {/* ── Team today (approvers) ── */}
-      {isApprover && teamToday.length > 0 && (
-        <Panel
-          title="Team today"
-          right={
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              <span style={{ fontSize: 11.5, color: C.sub }}>
-                {teamIn} in · {teamDone} out · {teamLeave} on leave · {teamOut} not in
-              </span>
+      {isApprover && teamToday.length > 0 && (() => {
+        const filterItems = [
+          { id: 'in', label: `Checked in (${teamIn})` },
+          { id: 'out', label: `Not in (${teamOut})` },
+          ...(teamLeave > 0 ? [{ id: 'leave', label: `On leave (${teamLeave})` }] : []),
+        ]
+        const activeFilter = filterItems.some(i => i.id === teamFilter) ? teamFilter : 'in'
+        const shown = teamToday.filter(t => t.state === activeFilter)
+        return (
+          <Panel
+            title="Team today"
+            right={
               <Segmented
-                items={[{ id: 'in', label: 'Check-in' }, { id: 'out', label: 'Check-out' }]}
-                value={teamTimeView}
-                onChange={setTeamTimeView}
+                items={filterItems}
+                value={activeFilter}
+                onChange={setTeamFilter}
               />
-            </div>
-          }
-        >
-          {teamToday.slice(0, 8).map(t => {
-            const label = t.state === 'in'
-              ? (t.checkedOut ? 'Checked out' : 'Checked in')
-              : t.state === 'leave' ? 'On leave' : 'Not checked in'
-            const time = t.state === 'in'
-              ? (teamTimeView === 'out' ? (t.outTime || '—') : t.inTime)
-              : '—'
-            return (
-              <div key={t.id} style={{ display: 'grid', gridTemplateColumns: '190px minmax(0,1fr) 150px', gap: 14, alignItems: 'center', padding: '9px 0', borderBottom: `1px solid ${C.rowLine}` }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                  <Avatar initials={t.avatar_initials} size={26} bg={C.bgTert} color={C.sub} />
-                  <span style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.full_name}</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: t.state === 'leave' ? '#3a76ad' : t.state === 'out' ? '#c2882a' : t.checkedOut ? '#c2882a' : C.greenDot }} />
-                  <span style={{ fontSize: 12.5, color: t.state === 'in' ? (t.checkedOut ? '#8a6a22' : C.body) : t.state === 'leave' ? '#2a5c8a' : '#8a6a22' }}>
-                    {label}
-                  </span>
-                </div>
-                <span style={{ fontFamily: C.mono, fontSize: 11.5, color: C.sub, textAlign: 'right' }}>{time}</span>
+            }
+          >
+            {shown.length === 0 ? (
+              <div style={{ fontSize: 12.5, color: C.muted, padding: '4px 0' }}>
+                {activeFilter === 'in' ? 'Nobody has checked in yet.'
+                  : activeFilter === 'out' ? 'Everyone has checked in.'
+                  : 'Nobody is on leave today.'}
               </div>
-            )
-          })}
-        </Panel>
-      )}
+            ) : shown.slice(0, 10).map(t => {
+              const label = activeFilter === 'in'
+                ? (t.checkedOut ? 'Checked in & out' : 'Checked in')
+                : activeFilter === 'leave' ? 'On leave' : 'Not checked in'
+              const time = activeFilter === 'in'
+                ? (t.checkedOut ? `${t.inTime} – ${t.outTime}` : t.inTime)
+                : '—'
+              return (
+                <div key={t.id} style={{ display: 'grid', gridTemplateColumns: '190px minmax(0,1fr) 150px', gap: 14, alignItems: 'center', padding: '9px 0', borderBottom: `1px solid ${C.rowLine}` }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                    <Avatar initials={t.avatar_initials} size={26} bg={C.bgTert} color={C.sub} />
+                    <span style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.full_name}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: activeFilter === 'leave' ? '#3a76ad' : activeFilter === 'out' ? '#c2882a' : t.checkedOut ? '#c2882a' : C.greenDot }} />
+                    <span style={{ fontSize: 12.5, color: activeFilter === 'in' ? (t.checkedOut ? '#8a6a22' : C.body) : activeFilter === 'leave' ? '#2a5c8a' : '#8a6a22' }}>
+                      {label}
+                    </span>
+                  </div>
+                  <span style={{ fontFamily: C.mono, fontSize: 11.5, color: C.sub, textAlign: 'right' }}>{time}</span>
+                </div>
+              )
+            })}
+            {shown.length > 10 && (
+              <div style={{ fontSize: 11.5, color: C.faint, paddingTop: 10 }}>+{shown.length - 10} more</div>
+            )}
+          </Panel>
+        )
+      })()}
 
       <div className="home-grid" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, alignItems: 'start' }}>
 
