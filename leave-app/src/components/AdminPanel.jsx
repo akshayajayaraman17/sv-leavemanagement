@@ -18,7 +18,7 @@ import {
 } from './UI'
 
 const ROLES = { admin: 'Admin', manager: 'Manager', employee: 'Employee' }
-const DEPTS = ['Engineering', 'HR', 'Finance', 'Sales', 'Operations', 'Marketing', 'Design', 'Product']
+const DEPTS = ['Information Technology', 'Engineering', 'HR', 'Finance', 'Sales', 'Operations', 'Marketing', 'Design', 'Product']
 const REGIONS = ['India', 'United States', 'United Kingdom']
 const today = todayStr()
 
