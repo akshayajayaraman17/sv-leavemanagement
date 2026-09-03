@@ -12,9 +12,8 @@ import { rowsToCsv, downloadCsv, parseCsv } from '../lib/csv'
 import { printPayslip } from '../lib/payslip'
 import { generateEmpCode } from '../lib/employeeCode'
 import { toDateStr, todayStr } from '../lib/dates'
-import BulkAddEmployees from './BulkAddEmployees'
 import {
-  Avatar, Badge, Btn, C, Confirm, Empty, Field, Modal, Mono, OffboardModal, Panel,
+  Avatar, Badge, Btn, C, Confirm, Empty, Field, Modal, Mono, OffboardModal,
   ResetPasswordModal, SecTitle, Segmented, Spinner, card, inputStyle, formatDate,
 } from './UI'
 
@@ -1168,7 +1167,7 @@ export default function AdminPanel({ onToast }) {
   const [section,   setSection]   = useState('employees')   // 'employees' | 'holidays' | 'audit' | 'export'
   const [employees, setEmployees] = useState([])
   const [loading,   setLoading]   = useState(true)
-  const [view,      setView]      = useState('list')   // 'list' | 'add' | 'edit' | 'bulk'
+  const [view,      setView]      = useState('list')   // 'list' | 'add' | 'edit'
   const [editing,   setEditing]   = useState(null)
   const [confirm,   setConfirm]   = useState(null)
   const [q,         setQ]         = useState('')
@@ -1217,16 +1216,6 @@ export default function AdminPanel({ onToast }) {
 
   const [resetTarget, setResetTarget] = useState(null)
   const [resetting,   setResetting]   = useState(false)
-  const [renumbering, setRenumbering] = useState(false)
-
-  const runRenumber = async () => {
-    setRenumbering(true)
-    const { error } = await renumberEmployeeCodes()
-    setRenumbering(false)
-    if (error) { onToast('Renumber failed: ' + (error.message || error), 'error'); return }
-    onToast('Employee codes renumbered by joining date')
-    load()
-  }
 
   const handleResetPassword = async (password) => {
     setResetting(true)
@@ -1313,16 +1302,6 @@ export default function AdminPanel({ onToast }) {
     )
   }
 
-  if (view === 'bulk') {
-    return (
-      <BulkAddEmployees
-        employees={employees}
-        onBack={() => setView('list')}
-        onDone={async () => { await renumberEmployeeCodes(); setView('list'); load() }}
-        onToast={onToast}
-      />
-    )
-  }
 
   const activeCount = employees.filter(e => e.is_active !== false).length
   const formerCount = employees.length - activeCount
@@ -1379,13 +1358,7 @@ export default function AdminPanel({ onToast }) {
         <div style={{ flex: 1 }} />
         <span style={{ fontFamily: C.mono, fontSize: 11.5, color: C.muted }}>{filtered.length} of {bucket.length} shown</span>
         {onCurrent && (
-          <>
-            <Btn variant="ghost" sm disabled={renumbering} onClick={runRenumber} style={{ whiteSpace: 'nowrap' }}>
-              {renumbering ? 'Renumbering…' : 'Renumber by join date'}
-            </Btn>
-            <Btn variant="ghost" sm onClick={() => setView('bulk')} style={{ whiteSpace: 'nowrap' }}>Bulk add</Btn>
-            <Btn sm onClick={() => setView('add')} style={{ whiteSpace: 'nowrap' }}>+ Add employee</Btn>
-          </>
+          <Btn sm onClick={() => setView('add')} style={{ whiteSpace: 'nowrap' }}>+ Add employee</Btn>
         )}
       </div>
 
