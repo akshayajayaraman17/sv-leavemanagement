@@ -1172,6 +1172,7 @@ export default function AdminPanel({ onToast }) {
   const [editing,   setEditing]   = useState(null)
   const [confirm,   setConfirm]   = useState(null)
   const [q,         setQ]         = useState('')
+  const [roster,    setRoster]    = useState('current')   // 'current' | 'former'
 
   const load = () => {
     setLoading(true)
@@ -1323,11 +1324,19 @@ export default function AdminPanel({ onToast }) {
     )
   }
 
-  const filtered = employees
+  const activeCount = employees.filter(e => e.is_active !== false).length
+  const formerCount = employees.length - activeCount
+  const onCurrent = roster === 'current'
+
+  const bucket = employees.filter(e => (e.is_active !== false) === onCurrent)
+  const query = q.trim().toLowerCase()
+  const filtered = bucket
     .filter(e =>
-      e.full_name.toLowerCase().includes(q.toLowerCase()) ||
-      e.email.toLowerCase().includes(q.toLowerCase()) ||
-      (e.employee_code || '').toLowerCase().includes(q.toLowerCase())
+      !query ||
+      e.full_name.toLowerCase().includes(query) ||
+      e.email.toLowerCase().includes(query) ||
+      (e.employee_code || '').toLowerCase().includes(query) ||
+      (e.designation || '').toLowerCase().includes(query)
     )
     .sort((a, b) => (a.employee_code || '').localeCompare(b.employee_code || '', undefined, { numeric: true }))
 
@@ -1359,16 +1368,32 @@ export default function AdminPanel({ onToast }) {
           <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search employees"
             style={{ ...inputStyle(), height: 34, padding: '0 12px 0 30px', fontSize: 13 }} />
         </div>
+        <Segmented
+          items={[
+            { id: 'current', label: `Current (${activeCount})` },
+            { id: 'former', label: `Former (${formerCount})` },
+          ]}
+          value={roster}
+          onChange={setRoster}
+        />
         <div style={{ flex: 1 }} />
-        <span style={{ fontFamily: C.mono, fontSize: 11.5, color: C.muted }}>{filtered.length} of {employees.length} shown</span>
-        <Btn variant="ghost" sm disabled={renumbering} onClick={runRenumber} style={{ whiteSpace: 'nowrap' }}>
-          {renumbering ? 'Renumbering…' : 'Renumber by join date'}
-        </Btn>
-        <Btn variant="ghost" sm onClick={() => setView('bulk')} style={{ whiteSpace: 'nowrap' }}>Bulk add</Btn>
-        <Btn sm onClick={() => setView('add')} style={{ whiteSpace: 'nowrap' }}>+ Add employee</Btn>
+        <span style={{ fontFamily: C.mono, fontSize: 11.5, color: C.muted }}>{filtered.length} of {bucket.length} shown</span>
+        {onCurrent && (
+          <>
+            <Btn variant="ghost" sm disabled={renumbering} onClick={runRenumber} style={{ whiteSpace: 'nowrap' }}>
+              {renumbering ? 'Renumbering…' : 'Renumber by join date'}
+            </Btn>
+            <Btn variant="ghost" sm onClick={() => setView('bulk')} style={{ whiteSpace: 'nowrap' }}>Bulk add</Btn>
+            <Btn sm onClick={() => setView('add')} style={{ whiteSpace: 'nowrap' }}>+ Add employee</Btn>
+          </>
+        )}
       </div>
 
-      {filtered.length === 0 ? <Empty text="No employees found" /> : (
+      {filtered.length === 0 ? (
+        <Empty text={query
+          ? 'No employees match your search.'
+          : onCurrent ? 'No employees found.' : 'No former employees.'} />
+      ) : (
         <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
           <div className="hscroll">
             <div style={{ display: 'grid', gridTemplateColumns: EMP_COLS, gap: 14, alignItems: 'center', padding: '9px 22px', background: C.bgSec, borderBottom: `1px solid ${C.lineSoft}`, minWidth: 860, boxSizing: 'border-box', fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.muted, fontWeight: 600 }}>
@@ -1389,14 +1414,17 @@ export default function AdminPanel({ onToast }) {
                 <div style={{ fontSize: 12.5, color: C.body, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.department || '—'}</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: C.body }}>
                   {ROLES[e.role]}
-                  {!e.is_active && <span style={{ fontSize: 10, letterSpacing: '0.05em', textTransform: 'uppercase', color: C.red, border: `1px solid ${C.redLine}`, borderRadius: 20, padding: '1px 7px' }}>Inactive</span>}
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, flexWrap: 'wrap' }} onClick={ev => ev.stopPropagation()}>
                   <button onClick={() => { setEditing(e); setView('edit') }} style={empActBtn}>Edit</button>
-                  <button onClick={() => setResetTarget(e)} style={empActBtn}>Reset</button>
-                  {e.is_active
-                    ? <button onClick={() => setConfirm(e)} style={{ ...empActBtn, color: C.red, borderColor: C.redLine }}>Deactivate</button>
-                    : <button onClick={() => handleReactivate(e.id)} style={{ ...empActBtn, color: '#2a5c8a' }}>Reactivate</button>}
+                  {e.is_active !== false ? (
+                    <>
+                      <button onClick={() => setResetTarget(e)} style={empActBtn}>Reset</button>
+                      <button onClick={() => setConfirm(e)} style={{ ...empActBtn, color: C.red, borderColor: C.redLine }}>Deactivate</button>
+                    </>
+                  ) : (
+                    <button onClick={() => handleReactivate(e.id)} style={{ ...empActBtn, color: '#2a5c8a' }}>Reactivate</button>
+                  )}
                 </div>
               </div>
             ))}
