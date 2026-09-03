@@ -6,15 +6,15 @@ import {
   fetchPendingRegularizations, decideLeave,
 } from '../lib/api'
 import { Avatar, C, Panel, Segmented, Spinner, card, formatDate } from './UI'
-import { todayStr } from '../lib/dates'
+import { useToday } from '../lib/dates'
 import { punchIn, punchOut } from '../lib/attendance'
 
-const today = todayStr()
 const fmtTime = ts => ts ? new Date(ts).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '—'
 
 const TONE = { annual: '#3a76ad', sick: '#3a76ad', comp: '#c2882a' }
 
 export default function Dashboard({ employee, onToast, onNavigate }) {
+  const today = useToday()
   const isApprover = employee.role === 'admin' || employee.role === 'manager'
   const [loading, setLoading] = useState(true)
   const [balances, setBalances] = useState([])
@@ -81,7 +81,7 @@ export default function Dashboard({ employee, onToast, onNavigate }) {
         setTeamToday(rows)
       }
     }).finally(() => setLoading(false))
-  }, [employee.id])
+  }, [employee.id, today])
 
   const decide = async (id, status) => {
     setDeciding(id)
@@ -112,7 +112,7 @@ export default function Dashboard({ employee, onToast, onNavigate }) {
 
   if (loading) return <Spinner />
 
-  const curMonth = new Date().getMonth()
+  const curMonth = new Date(today + 'T12:00:00').getMonth()
   const holidaysThisMonth = holidays
     .filter(h => h.holiday_date >= today && new Date(h.holiday_date + 'T12:00:00').getMonth() === curMonth)
     .sort((a, b) => a.holiday_date.localeCompare(b.holiday_date))

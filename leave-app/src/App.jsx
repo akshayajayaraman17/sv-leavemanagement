@@ -9,6 +9,7 @@ import {
   fetchPendingTimesheets, fetchPendingRegularizations,
 } from './lib/api'
 import { fetchNotificationFeed, getNotifSeenAt } from './lib/notifications'
+import { useToday } from './lib/dates'
 
 // A dynamically-imported chunk 404s when the app is redeployed (its hashed
 // filename changes) and a client is still running the previous build — every
@@ -93,6 +94,7 @@ function greeting() {
 
 export default function App() {
   const { employee, loading, blockedMessage } = useAuth()
+  const today = useToday()
   const [tab, setTab] = useState('dash')
   const [toast, setToast] = useState(null)
   const [hasUnread, setHasUnread] = useState(false)
@@ -148,7 +150,7 @@ export default function App() {
 
   const isHome = tab === 'dash'
   const eyebrow = isHome
-    ? new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+    ? new Date(today + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
     : 'Leave Manager'
   const title = isHome ? `${greeting()}, ${employee.full_name.split(' ')[0]}` : (TITLES[tab] || 'Home')
 
