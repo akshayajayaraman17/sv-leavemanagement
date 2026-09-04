@@ -6,7 +6,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import { Toast, C, Spinner, Avatar } from './components/UI'
 import {
   signOut, fetchPendingForApprover, fetchPendingCompForApprover,
-  fetchPendingTimesheets, fetchPendingRegularizations,
+  fetchPendingTimesheets, fetchPendingRegularizations, isApproverForAnyone,
 } from './lib/api'
 import { fetchNotificationFeed, getNotifSeenAt } from './lib/notifications'
 import { useToday } from './lib/dates'
@@ -99,6 +99,7 @@ export default function App() {
   const [toast, setToast] = useState(null)
   const [hasUnread, setHasUnread] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
+  const [isApprover, setIsApprover] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
 
   const showToast = (msg, type = 'success') => {
@@ -114,7 +115,10 @@ export default function App() {
       const seenAt = getNotifSeenAt()
       setHasUnread(feed.some(n => n.pinned || (n.date && new Date(n.date).getTime() > seenAt)))
     })
-    if (employee.role === 'admin' || employee.role === 'manager') {
+    const roleApprover = employee.role === 'admin' || employee.role === 'manager'
+    ;(roleApprover ? Promise.resolve({ data: true }) : isApproverForAnyone(employee.id)).then(({ data: approver }) => {
+      if (cancelled || !approver) return
+      setIsApprover(true)
       Promise.all([
         fetchPendingForApprover(employee.id), fetchPendingCompForApprover(employee.id),
         fetchPendingTimesheets(employee.id), fetchPendingRegularizations(employee.id),
@@ -122,7 +126,7 @@ export default function App() {
         if (cancelled) return
         setPendingCount(res.reduce((n, r) => n + (r.data?.length || 0), 0))
       })
-    }
+    })
     return () => { cancelled = true }
   }, [employee?.id])
 
@@ -141,7 +145,9 @@ export default function App() {
   if (employee.must_change_password) return <ForcePasswordChange employee={employee} />
 
   const role = employee.role || 'employee'
-  const nav = NAV_ALL.filter(n => n.roles.includes(role))
+  // An approver who isn't a manager/admin (e.g. a team lead set as someone's
+  // manager_id) still needs the Approvals tab — requests get routed to them.
+  const nav = NAV_ALL.filter(n => n.roles.includes(role) || (n.id === 'approvals' && isApprover))
   const mainNav = nav.filter(n => n.group === 'main')
   const moreNav = nav.filter(n => n.group === 'more')
   const primaryIds = MOBILE_PRIMARY[role] || MOBILE_PRIMARY.employee
@@ -243,7 +249,7 @@ export default function App() {
           <div className="content-max">
             <ErrorBoundary key={tab}>
               <Suspense fallback={<Spinner />}>
-                {tab === 'dash'          && <Dashboard     employee={employee} onToast={showToast} onNavigate={goTab} />}
+                {tab === 'dash'          && <Dashboard     employee={employee} onToast={showToast} onNavigate={goTab} canApprove={isApprover} />}
                 {tab === 'notifications' && <Notifications employee={employee} onToast={showToast} />}
                 {tab === 'attendance'    && <Attendance    employee={employee} onToast={showToast} />}
                 {tab === 'timesheet'     && <Timesheet     employee={employee} onToast={showToast} />}

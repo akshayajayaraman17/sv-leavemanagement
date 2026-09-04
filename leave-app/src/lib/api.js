@@ -185,6 +185,19 @@ export const setApprovers = async (employeeId, approverIds) => {
   return { data, error }
 }
 
+// Is this employee somebody's approver — either configured explicitly in
+// approver_config, or as the manager_id fallback that get_approver() uses?
+// Drives whether the Approvals tab shows, independent of role: a team lead
+// can be role 'employee' and still have leave/comp-off requests routed to
+// them, and previously had no way to see or act on them.
+export const isApproverForAnyone = async (employeeId) => {
+  const [cfg, mgr] = await Promise.all([
+    supabase.from('approver_config').select('employee_id', { count: 'exact', head: true }).eq('approver_id', employeeId),
+    supabase.from('employees').select('id', { count: 'exact', head: true }).eq('manager_id', employeeId).eq('is_active', true),
+  ])
+  return { data: (cfg.count || 0) > 0 || (mgr.count || 0) > 0, error: cfg.error || mgr.error }
+}
+
 // ─── Leave Balance ────────────────────────────────────────────────────────────
 export const fetchLeaveBalance = async (employeeId) => {
   const { data, error } = await supabase

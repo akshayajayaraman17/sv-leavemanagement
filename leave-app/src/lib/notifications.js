@@ -6,7 +6,7 @@ import {
   fetchMyLeaves, fetchMyCompRequests, fetchLeaveAdjustments,
   fetchMyRegularizations, fetchTimesheetHistory,
   fetchPendingForApprover, fetchPendingCompForApprover,
-  fetchPendingTimesheets, fetchPendingRegularizations,
+  fetchPendingTimesheets, fetchPendingRegularizations, isApproverForAnyone,
 } from './api'
 import { C, formatDate } from '../components/UI'
 
@@ -22,6 +22,7 @@ export function markNotifSeenNow() {
 
 export async function fetchNotificationFeed(employee) {
   const isApprover = employee.role === 'admin' || employee.role === 'manager'
+    || (await isApproverForAnyone(employee.id)).data === true
   const calls = [
     fetchMyLeaves(employee.id),
     fetchMyCompRequests(employee.id),

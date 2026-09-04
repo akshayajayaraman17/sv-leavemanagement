@@ -13,9 +13,9 @@ const fmtTime = ts => ts ? new Date(ts).toLocaleTimeString('en-IN', { hour: '2-d
 
 const TONE = { annual: '#3a76ad', sick: '#3a76ad', comp: '#c2882a' }
 
-export default function Dashboard({ employee, onToast, onNavigate }) {
+export default function Dashboard({ employee, onToast, onNavigate, canApprove = false }) {
   const today = useToday()
-  const isApprover = employee.role === 'admin' || employee.role === 'manager'
+  const isApprover = employee.role === 'admin' || employee.role === 'manager' || canApprove
   const [loading, setLoading] = useState(true)
   const [balances, setBalances] = useState([])
   const [leaves, setLeaves] = useState([])
@@ -81,7 +81,8 @@ export default function Dashboard({ employee, onToast, onNavigate }) {
         setTeamToday(rows)
       }
     }).finally(() => setLoading(false))
-  }, [employee.id, today])
+    // isApprover can flip true after the parent resolves approver status async
+  }, [employee.id, today, isApprover])
 
   const decide = async (id, status) => {
     setDeciding(id)
