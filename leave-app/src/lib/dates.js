@@ -17,6 +17,30 @@ export function todayStr() {
   return toDateStr(new Date())
 }
 
+// Human-readable tenure since a "YYYY-MM-DD" joining date, e.g. "2y 3m",
+// "8m", "8m 12d" (under a month rounds to days), or "Joins <date>" for a
+// future-dated joining_date. Calendar-month based (not /30-day math), so
+// it lines up with how "X years of service" is normally counted.
+export function formatTenure(joiningDate) {
+  if (!joiningDate) return '—'
+  const start = new Date(joiningDate + 'T00:00:00')
+  const now = new Date()
+  if (start > now) return `Joins ${joiningDate}`
+
+  let years  = now.getFullYear()  - start.getFullYear()
+  let months = now.getMonth()     - start.getMonth()
+  let days   = now.getDate()      - start.getDate()
+  if (days < 0) {
+    months -= 1
+    days += new Date(now.getFullYear(), now.getMonth(), 0).getDate()
+  }
+  if (months < 0) { years -= 1; months += 12 }
+
+  if (years > 0) return months > 0 ? `${years}y ${months}m` : `${years}y`
+  if (months > 0) return `${months}m`
+  return `${days}d`
+}
+
 // Today's local date string that keeps itself current: it re-checks once a
 // minute and whenever the tab regains focus, so a screen left open past
 // midnight (or a PWA reopened the next morning) rolls over to the new day on

@@ -11,7 +11,7 @@ import { workingDays } from '../lib/leaveDays'
 import { rowsToCsv, downloadCsv, parseCsv } from '../lib/csv'
 import { printPayslip } from '../lib/payslip'
 import { generateEmpCode } from '../lib/employeeCode'
-import { toDateStr, todayStr } from '../lib/dates'
+import { toDateStr, todayStr, formatTenure } from '../lib/dates'
 import {
   Avatar, Badge, Btn, C, Confirm, Empty, Field, Modal, Mono, OffboardModal,
   ResetPasswordModal, SecTitle, Segmented, Spinner, card, inputStyle, formatDate,
@@ -1370,7 +1370,7 @@ export default function AdminPanel({ onToast }) {
         <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
           <div className="hscroll">
             <div style={{ display: 'grid', gridTemplateColumns: EMP_COLS, gap: 14, alignItems: 'center', padding: '9px 22px', background: C.bgSec, borderBottom: `1px solid ${C.lineSoft}`, minWidth: 860, boxSizing: 'border-box', fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: C.muted, fontWeight: 600 }}>
-              <div>Employee</div><div>Designation</div><div>Dept</div><div>Role</div><div style={{ textAlign: 'right' }}>Actions</div>
+              <div>Employee</div><div>Designation</div><div>Dept</div><div>Role</div><div>Tenure</div><div style={{ textAlign: 'right' }}>Actions</div>
             </div>
             {filtered.map(e => (
               <div key={e.id}
@@ -1388,6 +1388,7 @@ export default function AdminPanel({ onToast }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: C.body }}>
                   {ROLES[e.role]}
                 </div>
+                <div style={{ fontSize: 12.5, color: C.body, fontFamily: C.mono, whiteSpace: 'nowrap' }}>{formatTenure(e.joining_date)}</div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, flexWrap: 'wrap' }} onClick={ev => ev.stopPropagation()}>
                   <button onClick={() => { setEditing(e); setView('edit') }} style={empActBtn}>Edit</button>
                   {e.is_active !== false ? (
@@ -1408,5 +1409,5 @@ export default function AdminPanel({ onToast }) {
   )
 }
 
-const EMP_COLS = 'minmax(190px,1.6fr) minmax(150px,1.2fr) minmax(90px,120px) 150px 210px'
+const EMP_COLS = 'minmax(190px,1.6fr) minmax(150px,1.2fr) minmax(90px,120px) 110px 90px 210px'
 const empActBtn = { height: 28, padding: '0 10px', border: `1px solid ${C.line}`, background: '#fff', borderRadius: 6, fontSize: 12, color: '#2b3648', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }
