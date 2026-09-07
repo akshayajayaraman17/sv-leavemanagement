@@ -305,7 +305,12 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast, onReset, on
     onToast('Comp off credited successfully')
   }
 
-  const toggleApprover = (id) => setSelAppr(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])
+  const MAX_APPROVERS = 3
+  const toggleApprover = (id) => setSelAppr(p => {
+    if (p.includes(id)) return p.filter(x => x !== id)
+    if (p.length >= MAX_APPROVERS) { onToast?.(`You can select at most ${MAX_APPROVERS} approvers`, 'error'); return p }
+    return [...p, id]
+  })
 
   const sec = { borderTop: `1px solid ${C.lineSoft}`, paddingTop: 20, marginTop: 22 }
   const TABS = isEdit
@@ -637,9 +642,12 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast, onReset, on
           </div>
           {approvers.length === 0 ? <Empty text="No other employees found" /> : (
             <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
-              {approvers.map((e, i, arr) => (
-                <label key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: i < arr.length - 1 ? `1px solid ${C.rowLine}` : 'none', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={selectedApprovers.includes(e.id)} onChange={() => toggleApprover(e.id)} />
+              {approvers.map((e, i, arr) => {
+                const checked = selectedApprovers.includes(e.id)
+                const capped = !checked && selectedApprovers.length >= MAX_APPROVERS
+                return (
+                <label key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: i < arr.length - 1 ? `1px solid ${C.rowLine}` : 'none', cursor: capped ? 'not-allowed' : 'pointer', opacity: capped ? 0.5 : 1 }}>
+                  <input type="checkbox" checked={checked} disabled={capped} onChange={() => toggleApprover(e.id)} />
                   <Avatar initials={e.avatar_initials} size={28} />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 500 }}>{e.full_name}</div>
@@ -651,7 +659,8 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast, onReset, on
                     </span>
                   )}
                 </label>
-              ))}
+                )
+              })}
             </div>
           )}
           {selectedApprovers.length > 0 && (
