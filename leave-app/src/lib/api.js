@@ -243,6 +243,7 @@ export const applyLeave = async (payload) => {
     .insert(payload)
     .select()
     .single()
+  if (!error && data) notifyNewRequest('leave_requests', data.id)
   return { data, error }
 }
 
@@ -264,6 +265,16 @@ export const adminAddLeave = async (payload) => {
 // succeeded by the time this is called; email delivery is a side effect).
 const notifyDecision = (table, id) => {
   supabase.functions.invoke('send-notification', { body: { table, recordId: id } })
+    .then(({ error }) => { if (error) console.error('Notification failed:', error) })
+    .catch(err => console.error('Notification failed:', err))
+}
+
+// Best-effort "a new request needs your approval" email to the assigned
+// approver — fire-and-forget, same rationale as notifyDecision. Silently
+// skipped server-side if the record has no approver (get_approver returned
+// null), so this never surfaces that as an error to the requester.
+const notifyNewRequest = (table, id) => {
+  supabase.functions.invoke('send-notification', { body: { table, recordId: id, event: 'submitted' } })
     .then(({ error }) => { if (error) console.error('Notification failed:', error) })
     .catch(err => console.error('Notification failed:', err))
 }
@@ -315,6 +326,7 @@ export const applyCompOff = async (payload) => {
     .insert(payload)
     .select()
     .single()
+  if (!error && data) notifyNewRequest('comp_off_requests', data.id)
   return { data, error }
 }
 
@@ -446,6 +458,7 @@ export const createRegularization = async (payload) => {
     .insert(payload)
     .select()
     .single()
+  if (!error && data) notifyNewRequest('attendance_regularizations', data.id)
   return { data, error }
 }
 
@@ -562,6 +575,7 @@ export const submitTimesheet = async (id, totalHours) => {
     .eq('id', id)
     .select()
     .single()
+  if (!error && data) notifyNewRequest('timesheets', data.id)
   return { data, error }
 }
 
