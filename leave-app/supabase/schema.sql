@@ -152,7 +152,12 @@ insert into public.leave_types (code, label, annual_days, color, bg_color, is_co
 -- Returns the effective approver for an employee: the highest-priority
 -- active approver from approver_config, falling back to the manager only
 -- if the manager is themselves active (a deactivated approver is skipped
--- rather than silently stalling every request routed to them).
+-- rather than silently stalling every request routed to them), and
+-- finally falling back to the longest-serving active admin so a request
+-- never ends up with a NULL approver_id — which would make it invisible
+-- to everyone, since every "pending for me" query filters on
+-- approver_id = auth.uid(). Never routes an admin's own request to
+-- themselves.
 create or replace function public.get_approver(emp_id uuid)
 returns uuid language sql stable as $$
   select coalesce(
@@ -169,6 +174,13 @@ returns uuid language sql stable as $$
       from public.employees emp
       join public.employees m on m.id = emp.manager_id
       where emp.id = emp_id and m.is_active = true
+    ),
+    (
+      select a.id
+      from public.employees a
+      where a.role = 'admin' and a.is_active = true and a.id <> emp_id
+      order by a.created_at asc
+      limit 1
     )
   );
 $$;
