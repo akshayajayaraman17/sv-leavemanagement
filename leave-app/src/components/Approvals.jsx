@@ -28,7 +28,7 @@ export default function Approvals({ employee, onToast }) {
 
   const TAB_LABEL = { comp: 'comp off request', leaves: 'leave request', timesheets: 'timesheet', regs: 'regularization' }
   const currentList = tab === 'comp' ? comps : tab === 'leaves' ? leaves : tab === 'timesheets' ? timesheets : regs
-  const needsReason = tab === 'timesheets' || tab === 'regs'
+  const needsReason = tab === 'timesheets' || tab === 'regs' || tab === 'leaves'
 
   const switchTab = (id) => {
     setTab(id); setSelected(new Set()); setBulkRejecting(false)
@@ -57,7 +57,7 @@ export default function Approvals({ employee, onToast }) {
         }
         return { id, ...res }
       }
-      if (tab === 'leaves')     return { id, ...(await decideLeave(id, status)) }
+      if (tab === 'leaves')     return { id, ...(await decideLeave(id, status, status === 'rejected' ? reasonFor(id) : null)) }
       if (tab === 'timesheets') return { id, ...(await decideTimesheet(id, status, status === 'rejected' ? reasonFor(id) : null)) }
       const res = await decideRegularization(id, status, status === 'rejected' ? reasonFor(id) : null)
       if (!res.error && status === 'approved') {
@@ -105,9 +105,10 @@ export default function Approvals({ employee, onToast }) {
   }
 
   const handleLeave = async (id, status) => {
+    if (status === 'rejected' && !rejectReason.trim()) { setRejectId(id); return }
     setDeciding(id)
-    const { error } = await decideLeave(id, status)
-    setDeciding(null)
+    const { error } = await decideLeave(id, status, status === 'rejected' ? rejectReason : null)
+    setDeciding(null); setRejectId(null); setRejectReason('')
     if (error) { onToast(error.message, 'error'); return }
     onToast(`Leave ${status}`); setLeaves(p => p.filter(l => l.id !== id))
   }
@@ -235,7 +236,12 @@ export default function Approvals({ employee, onToast }) {
         flag: l.medical_certificate_url
           ? <button onClick={() => viewCertificate(l.medical_certificate_url)} style={{ fontSize: 11, color: C.blue, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline' }}>Medical certificate</button>
           : null,
-        onApprove: () => handleLeave(l.id, 'approved'), onReject: () => handleLeave(l.id, 'rejected'),
+        rejectLabel: rejectId === l.id ? 'Confirm reject' : 'Reject',
+        onApprove: () => handleLeave(l.id, 'approved'),
+        onReject: () => { if (rejectId === l.id && rejectReason.trim()) handleLeave(l.id, 'rejected'); else { setRejectId(l.id); setRejectReason('') } },
+        children: (rejectId === l.id || (bulkRejecting && selected.has(l.id)))
+          ? <>{rejectId === l.id && rejectInput()}{bulkOverride(l.id)}</>
+          : null,
       }))))}
 
       {tab === 'comp' && (comps.length === 0 ? <Empty text="All comp off approvals done" /> : listCard(comps.map(c => row({
