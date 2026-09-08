@@ -113,12 +113,17 @@ export default function Dashboard({ employee, onToast, onNavigate, canApprove = 
 
   if (loading) return <Spinner />
 
-  const curMonth = new Date(today + 'T12:00:00').getMonth()
+  const todayDate = new Date(today + 'T12:00:00')
+  const curMonth = todayDate.getMonth()
+  const curDay = todayDate.getDate()
   const holidaysThisMonth = holidays
     .filter(h => h.holiday_date >= today && new Date(h.holiday_date + 'T12:00:00').getMonth() === curMonth)
     .sort((a, b) => a.holiday_date.localeCompare(b.holiday_date))
   const birthdaysThisMonth = birthdays
-    .filter(b => new Date(b.date_of_birth + 'T12:00:00').getMonth() === curMonth)
+    .filter(b => {
+      const d = new Date(b.date_of_birth + 'T12:00:00')
+      return d.getMonth() === curMonth && d.getDate() >= curDay
+    })
     .sort((a, b) => new Date(a.date_of_birth + 'T12:00:00').getDate() - new Date(b.date_of_birth + 'T12:00:00').getDate())
 
   // Check-in state

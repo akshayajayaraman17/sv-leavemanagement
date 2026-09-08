@@ -223,7 +223,7 @@ export function ApplyLeave({ employee, onToast }) {
         {(errs.from || errs.to) && <div style={{ fontSize: 11.5, color: '#c9564a', marginTop: 6 }}>{errs.from || errs.to}</div>}
         {form.half && <div style={{ fontSize: 11, color: '#8a6a22', marginTop: 6 }}>Half-day requests are single-day only — pick one date below.</div>}
 
-        <RangeCalendar from={form.from} to={form.to} minDate={today} single={form.half} onPick={pickDate} />
+        <RangeCalendar from={form.from} to={form.to} single={form.half} onPick={pickDate} />
 
         <Field label="Reason" error={errs.reason} style={{ marginTop: 20 }}>
           <textarea rows={3} value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}

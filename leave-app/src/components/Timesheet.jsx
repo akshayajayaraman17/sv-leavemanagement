@@ -189,19 +189,25 @@ export default function Timesheet({ employee, onToast }) {
   if (loading) return <Spinner />
 
   const isDraft = timesheet?.status === 'draft'
-  const isLocked = isDeadlinePassed && isDraft && !isFutureWeek
+  const lateUnlocked = (timesheet?.reject_reason || '').startsWith('Late submission:')
+  const isLocked = isDeadlinePassed && isDraft && !isFutureWeek && !lateUnlocked
   const submitErrors = getSubmitErrors()
   const unsyncedJira = entries.filter(e => e.jira_issue_key && !e.jira_synced)
 
   return (
     <div>
-      {timesheet?.reject_reason && (
+      {timesheet?.reject_reason && lateUnlocked && (
+        <div style={{ background: '#fdfaf4', color: '#8a6a22', border: `1px solid ${C.amberLine}`, fontSize: 12, padding: '10px 14px', borderRadius: 10, marginBottom: 14 }}>
+          <strong>Unlocked for late submission. </strong>{timesheet.reject_reason.replace('Late submission:', '').trim()} — add your missing entries and submit the week.
+        </div>
+      )}
+      {timesheet?.reject_reason && !lateUnlocked && (
         <div style={{ background: C.redBg, color: C.red, border: `1px solid ${C.redLine}`, fontSize: 12, padding: '10px 14px', borderRadius: 10, marginBottom: 14 }}>
           <strong>Rejected: </strong>{timesheet.reject_reason}
         </div>
       )}
 
-      {showLateReq && <LateRequestForm timesheet={timesheet} onSubmit={() => { setShowLateReq(false); load(); onToast('Late submission request sent') }} onCancel={() => setShowLateReq(false)} />}
+      {showLateReq && <LateRequestForm timesheet={timesheet} onSubmit={() => { setShowLateReq(false); load(); onToast('Timesheet unlocked — add your missing entries and submit') }} onCancel={() => setShowLateReq(false)} />}
 
       <div style={{ ...card, padding: 0, overflow: 'hidden', marginBottom: 16 }}>
         <div style={{ padding: '20px 24px', display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap', borderBottom: '1px solid #eaeff6' }}>
