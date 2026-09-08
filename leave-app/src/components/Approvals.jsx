@@ -8,7 +8,7 @@ import {
 } from '../lib/api'
 import { Avatar, Btn, C, Empty, Mono, Spinner, Tabs, card, formatDate, inputStyle, isSelfReported, stripSelfReported } from './UI'
 
-export default function Approvals({ employee, onToast }) {
+export default function Approvals({ employee, onToast, onPendingChange }) {
   const [tab, setTab]             = useState('leaves')
   const [leaves, setLeaves]       = useState([])
   const [comps, setComps]         = useState([])
@@ -90,6 +90,12 @@ export default function Approvals({ employee, onToast }) {
     }).finally(() => setLoading(false))
   }
   useEffect(load, [employee.id])
+
+  // Keep the sidebar badge in sync as requests get approved/rejected here.
+  useEffect(() => {
+    if (loading) return
+    onPendingChange?.(leaves.length + comps.length + timesheets.length + regs.length)
+  }, [loading, leaves.length, comps.length, timesheets.length, regs.length])
 
   const loadTsEntries = async (tsId) => {
     if (tsEntries[tsId]) { setExpandedTs(expandedTs === tsId ? null : tsId); return }

@@ -256,7 +256,7 @@ export default function App() {
                 {tab === 'apply'         && <Apply         employee={employee} onToast={showToast} />}
                 {tab === 'history'       && <MyLeaves      employee={employee} onToast={showToast} />}
                 {tab === 'calendar'      && <Calendar      onToast={showToast} />}
-                {tab === 'approvals'     && <Approvals     employee={employee} onToast={showToast} />}
+                {tab === 'approvals'     && <Approvals     employee={employee} onToast={showToast} onPendingChange={setPendingCount} />}
                 {tab === 'admin'         && <AdminPanel    onToast={showToast} />}
                 {tab === 'team'          && <Team          viewer={employee} onToast={showToast} />}
                 {tab === 'jira'          && <JiraSettings  employee={employee} onToast={showToast} />}
