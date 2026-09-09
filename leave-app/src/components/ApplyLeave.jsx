@@ -140,7 +140,13 @@ export function ApplyLeave({ employee, onToast }) {
   }
 
   const submit = async () => {
-    const e = validate(); if (Object.keys(e).length) { setErrs(e); return }
+    const e = validate()
+    if (Object.keys(e).length) {
+      setErrs(e)
+      onToast(e.reason ? 'Add a reason for your approver before submitting' : (e.from || e.to || e.certificate || 'Check the highlighted fields'), 'error')
+      document.getElementById('apply-leave-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      return
+    }
     setSubmitting(true)
     let certUrl = null
     if (isSick && certificate) {
@@ -180,7 +186,7 @@ export function ApplyLeave({ employee, onToast }) {
   }
 
   return (
-    <div className="split-narrow" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, alignItems: 'start' }}>
+    <div id="apply-leave-form" className="split-narrow" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, alignItems: 'start' }}>
       <div style={{ ...card, padding: '24px 26px' }}>
         <div style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.muted, marginBottom: 12 }}>Leave type</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 10 }}>
