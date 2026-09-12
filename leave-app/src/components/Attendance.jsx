@@ -112,8 +112,10 @@ export default function Attendance({ employee, onToast }) {
       attendance_id: regForm.attendanceId, employee_id: employee.id, approver_id: approverId || null,
       reason: regForm.reason.trim(), check_out_time: checkOutTime,
     })
-    if (!error) await updateAttendanceStatus(regForm.attendanceId, 'incomplete')
-    setRegSaving(false); setRegForm(null); load()
+    setRegSaving(false)
+    if (error) { onToast?.(error.message || 'Failed to submit regularization request', 'error'); return }
+    await updateAttendanceStatus(regForm.attendanceId, 'incomplete')
+    setRegForm(null); load()
   }
 
   if (loading) return <Spinner />
