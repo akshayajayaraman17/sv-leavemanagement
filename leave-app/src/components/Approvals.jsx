@@ -3,7 +3,7 @@ import {
   fetchPendingForApprover, fetchPendingCompForApprover,
   decideLeave, decideCompOff,
   fetchPendingTimesheets, decideTimesheet, fetchTimesheetEntries,
-  fetchPendingRegularizations, decideRegularization, updateAttendanceStatus,
+  fetchPendingRegularizations, decideRegularization,
   finalizeSelfReportedAttendance, getMedicalCertificateUrl,
 } from '../lib/api'
 import { Avatar, Btn, C, Empty, Mono, Spinner, Tabs, card, formatDate, inputStyle, isSelfReported, stripSelfReported } from './UI'
@@ -59,12 +59,7 @@ export default function Approvals({ employee, onToast, onPendingChange }) {
       }
       if (tab === 'leaves')     return { id, ...(await decideLeave(id, status, status === 'rejected' ? reasonFor(id) : null)) }
       if (tab === 'timesheets') return { id, ...(await decideTimesheet(id, status, status === 'rejected' ? reasonFor(id) : null)) }
-      const res = await decideRegularization(id, status, status === 'rejected' ? reasonFor(id) : null)
-      if (!res.error && status === 'approved') {
-        const reg = regs.find(r => r.id === id)
-        if (reg) await updateAttendanceStatus(reg.attendance_id, 'present')
-      }
-      return { id, ...res }
+      return { id, ...(await decideRegularization(id, status, status === 'rejected' ? reasonFor(id) : null)) }
     }))
 
     const succeeded = new Set(results.filter(r => !r.error).map(r => r.id))
@@ -139,7 +134,6 @@ export default function Approvals({ employee, onToast, onPendingChange }) {
   const handleRegularization = async (reg, status) => {
     setDeciding(reg.id)
     const { error } = await decideRegularization(reg.id, status, status === 'rejected' ? rejectReason : null)
-    if (!error && status === 'approved') await updateAttendanceStatus(reg.attendance_id, 'present')
     setDeciding(null); setRejectId(null); setRejectReason('')
     if (error) { onToast(error.message, 'error'); return }
     onToast(`Regularization ${status}`); setRegs(p => p.filter(r => r.id !== reg.id))
@@ -269,7 +263,7 @@ export default function Approvals({ employee, onToast, onPendingChange }) {
         what: `Regularisation · ${formatDate(r.attendance?.date)}`,
         reason: r.reason,
         after: `In ${fmtT(r.attendance?.check_in_time)}`,
-        flag: r.check_out_time ? `Proposed out ${r.check_out_time}` : null,
+        flag: r.check_out_time ? `Proposed out ${fmtT(r.check_out_time)}` : null,
         rejectLabel: rejectId === r.id ? 'Confirm reject' : 'Reject',
         onApprove: () => handleRegularization(r, 'approved'),
         onReject: () => { if (rejectId === r.id && rejectReason.trim()) handleRegularization(r, 'rejected'); else { setRejectId(r.id); setRejectReason('') } },

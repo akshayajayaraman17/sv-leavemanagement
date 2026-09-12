@@ -104,12 +104,13 @@ export default function Attendance({ employee, onToast }) {
   }
 
   const submitRegularization = async () => {
-    if (!regForm?.reason?.trim()) return
+    if (!regForm?.reason?.trim() || !regForm?.checkOutTime) return
     setRegSaving(true)
     const { data: approverId } = await getApproverForEmployee(employee.id)
+    const checkOutTime = new Date(`${regForm.date}T${regForm.checkOutTime}:00`).toISOString()
     const { error } = await createRegularization({
       attendance_id: regForm.attendanceId, employee_id: employee.id, approver_id: approverId || null,
-      reason: regForm.reason.trim(), check_out_time: regForm.checkOutTime || null,
+      reason: regForm.reason.trim(), check_out_time: checkOutTime,
     })
     if (!error) await updateAttendanceStatus(regForm.attendanceId, 'incomplete')
     setRegSaving(false); setRegForm(null); load()
@@ -149,7 +150,7 @@ export default function Attendance({ employee, onToast }) {
             <input value={regForm.reason} onChange={e => setRegForm(f => ({ ...f, reason: e.target.value }))} placeholder="e.g. Forgot to check out, system was down" style={inputStyle()} />
           </Field>
           <div style={{ display: 'flex', gap: 8 }}>
-            <Btn full disabled={regSaving || !regForm.reason.trim()} onClick={submitRegularization}>{regSaving ? 'Submitting…' : 'Submit request'}</Btn>
+            <Btn full disabled={regSaving || !regForm.reason.trim() || !regForm.checkOutTime} onClick={submitRegularization}>{regSaving ? 'Submitting…' : 'Submit request'}</Btn>
             <Btn variant="ghost" onClick={() => setRegForm(null)}>Cancel</Btn>
           </div>
         </div>

@@ -701,6 +701,52 @@ create policy "reg_update" on public.attendance_regularizations for update using
   approver_id = auth.uid() or public.is_admin()
 );
 
+-- Resolving a regularization decision touches the attendance row, which the
+-- approver often can't update directly (attendance_update only grants
+-- role in ('manager','admin'); a configured approver_config approver may be
+-- neither). Runs as security definer so the fix-up always applies once the
+-- decision itself has passed reg_update's authorization check above.
+create or replace function public.apply_regularization_decision()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_date      date;
+  v_check_in  timestamptz;
+  v_check_out timestamptz;
+begin
+  if new.status = 'approved' then
+    select date, check_in_time into v_date, v_check_in
+    from public.attendance where id = new.attendance_id;
+
+    v_check_out := coalesce(new.check_out_time, v_check_in);
+
+    insert into public.attendance_punches (attendance_id, employee_id, punch_type, punch_time, address)
+    values (new.attendance_id, new.employee_id, 'check_out', v_check_out, 'Regularized');
+
+    update public.attendance
+    set status = 'present',
+        check_out_time = v_check_out,
+        check_out_address = 'Regularized',
+        total_hours = round((extract(epoch from (v_check_out - v_check_in)) / 3600.0)::numeric, 2)
+    where id = new.attendance_id;
+
+  elsif new.status = 'rejected' then
+    update public.attendance set status = 'incomplete' where id = new.attendance_id;
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger trg_apply_regularization_decision
+  after update on public.attendance_regularizations
+  for each row
+  when (old.status is distinct from new.status)
+  execute function public.apply_regularization_decision();
+
 -- ============================================================
 -- INDEXES & DATA INTEGRITY
 -- ============================================================
