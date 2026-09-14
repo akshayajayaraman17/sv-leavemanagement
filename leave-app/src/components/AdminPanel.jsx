@@ -5,7 +5,7 @@ import {
   fetchLeaveTypes, fetchLeaveAdjustments, upsertLeaveAdjustment, grantCompOff, adminAddLeave,
   fetchLeaveBalance, fetchHolidays, createHoliday, deleteHoliday, fetchAuditLog,
   fetchAllLeaveRequests, fetchAllAttendance,
-  fetchMyLeaves, fetchTimesheetHistory, fetchTimesheetEntries, fetchAttendanceHistory, getMedicalCertificateUrl,
+  fetchMyLeaves, fetchTimesheetHistory, fetchTimesheetEntries, fetchAttendanceHistory, fetchPunches, getMedicalCertificateUrl,
 } from '../lib/api'
 import { workingDays } from '../lib/leaveDays'
 import { rowsToCsv, downloadCsv, parseCsv } from '../lib/csv'
@@ -70,6 +70,8 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast, onReset, on
   const [activityAttendance, setActivityAttendance] = useState([])
   const [expandedTs, setExpandedTs] = useState(null)
   const [tsEntries,  setTsEntries]  = useState({})
+  const [expandedDay, setExpandedDay] = useState(null)
+  const [punchesByDay, setPunchesByDay] = useState({})
 
   // Add Leave Record — lets an admin insert an already-approved leave
   // directly (backdating, regularizing something never applied for),
@@ -234,6 +236,16 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast, onReset, on
       setTsEntries(p => ({ ...p, [tsId]: data || [] }))
     }
     setExpandedTs(tsId)
+  }
+
+  const loadPunches = async (attendanceId) => {
+    if (expandedDay === attendanceId) { setExpandedDay(null); return }
+    if (!punchesByDay[attendanceId]) {
+      const { data, error } = await fetchPunches(attendanceId)
+      if (error) onToast?.('Failed to load punch history', 'error')
+      setPunchesByDay(p => ({ ...p, [attendanceId]: data || [] }))
+    }
+    setExpandedDay(attendanceId)
   }
 
   const viewCertificate = async (value) => {
@@ -760,22 +772,49 @@ function EmployeeForm({ initial, employees, onSave, onBack, onToast, onReset, on
           <SecTitle style={{ marginTop: 18 }}>Attendance (last 30 days)</SecTitle>
           {activityAttendance.length === 0 ? <Empty text="No attendance records" /> :
             activityAttendance.map(a => (
-              <div key={a.id} style={{ ...card, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 500 }}>
-                    {new Date(a.date + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+              <div key={a.id} style={{ ...card, marginBottom: 8 }}>
+                <button onClick={() => loadPunches(a.id)}
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>
+                      {new Date(a.date + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: C.sub, marginTop: 3 }}>
+                      In {formatTime(a.check_in_time)} · Out {formatTime(a.check_out_time)}{a.check_in_address ? ` · ${a.check_in_address}` : ''}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 11.5, color: C.sub, marginTop: 3 }}>
-                    In {formatTime(a.check_in_time)} · Out {formatTime(a.check_out_time)}{a.check_in_address ? ` · ${a.check_in_address}` : ''}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                    {a.total_hours != null ? (
+                      <Mono style={{ background: C.greenBg, color: '#1f7350', fontSize: 12, fontWeight: 500, padding: '3px 10px', borderRadius: 20 }}>
+                        {a.total_hours.toFixed(1)}h
+                      </Mono>
+                    ) : a.check_in_time ? (
+                      <span style={{ background: C.amberBg, color: '#8a6a22', fontSize: 11, padding: '3px 10px', borderRadius: 20 }}>in only</span>
+                    ) : null}
+                    <span style={{ fontSize: 11, color: C.faint }}>{expandedDay === a.id ? '▴' : '▾'}</span>
                   </div>
-                </div>
-                {a.total_hours != null ? (
-                  <Mono style={{ background: C.greenBg, color: '#1f7350', fontSize: 12, fontWeight: 500, padding: '3px 10px', borderRadius: 20, flexShrink: 0 }}>
-                    {a.total_hours.toFixed(1)}h
-                  </Mono>
-                ) : a.check_in_time ? (
-                  <span style={{ background: C.amberBg, color: '#8a6a22', fontSize: 11, padding: '3px 10px', borderRadius: 20, flexShrink: 0 }}>in only</span>
-                ) : null}
+                </button>
+                {expandedDay === a.id && (
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.rowLine}` }}>
+                    {(punchesByDay[a.id] || []).length === 0 ? (
+                      <div style={{ fontSize: 11.5, color: C.faint }}>No individual punch records for this day</div>
+                    ) : punchesByDay[a.id].map(p => (
+                      <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: `1px solid ${C.rowLine}` }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: p.punch_type === 'check_in' ? C.greenDot : '#c2882a' }} />
+                          <span style={{ fontSize: 12, fontWeight: 500, flexShrink: 0 }}>{p.punch_type === 'check_in' ? 'Check in' : 'Check out'}</span>
+                          <span style={{ fontSize: 11.5, color: C.sub, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.address || '—'}</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                          {p.lat != null && p.lng != null && (
+                            <a href={`https://www.google.com/maps?q=${p.lat},${p.lng}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: C.blue }}>Map</a>
+                          )}
+                          <Mono style={{ fontSize: 12 }}>{formatTime(p.punch_time)}</Mono>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))
           }
