@@ -17,6 +17,16 @@ export function todayStr() {
   return toDateStr(new Date())
 }
 
+// First/last "YYYY-MM-DD" of the calendar month containing dateStr (defaults
+// to today) — used to scope a monthly-quota query (e.g. permission requests)
+// to local calendar months, not UTC ones.
+export function monthBounds(dateStr = todayStr()) {
+  const d = new Date(dateStr + 'T12:00:00')
+  const start = new Date(d.getFullYear(), d.getMonth(), 1)
+  const end = new Date(d.getFullYear(), d.getMonth() + 1, 0)
+  return { start: toDateStr(start), end: toDateStr(end) }
+}
+
 // Human-readable tenure since a "YYYY-MM-DD" joining date, e.g. "2y 3m",
 // "8m", "8m 12d" (under a month rounds to days), or "Joins <date>" for a
 // future-dated joining_date. Calendar-month based (not /30-day math), so

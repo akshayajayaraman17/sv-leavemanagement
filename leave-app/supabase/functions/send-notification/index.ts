@@ -25,7 +25,7 @@ const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const NOTIFY_FROM = Deno.env.get("NOTIFY_FROM_EMAIL") || "notifications@resend.dev";
 const APP_URL = Deno.env.get("APP_URL"); // optional — omits the "view in app" link if unset
 
-type TableKey = "leave_requests" | "comp_off_requests" | "timesheets" | "attendance_regularizations";
+type TableKey = "leave_requests" | "comp_off_requests" | "timesheets" | "attendance_regularizations" | "permission_requests";
 type EventKey = "decision" | "submitted";
 
 const TABLE_CONFIG: Record<TableKey, {
@@ -92,6 +92,21 @@ const TABLE_CONFIG: Record<TableKey, {
       subject: (r) => `${r.employee.full_name} requested an attendance regularization`,
       body: (r) => `<strong>${r.employee.full_name}</strong> requested an attendance regularization for ${r.attendance?.date} ` +
         `and is awaiting your approval.`,
+    },
+  },
+  permission_requests: {
+    label: "Permission request",
+    select: "id, request_date, from_time, to_time, duration_minutes, status, reject_reason, employee:employee_id(full_name, email), approver:approver_id(full_name, email)",
+    pendingStatus: "pending",
+    decision: {
+      subject: (r) => `Your permission request was ${r.status}`,
+      body: (r) => `Your permission request for ${r.request_date} (${r.from_time}–${r.to_time}) was <strong>${r.status}</strong>.` +
+        (r.reject_reason ? `<br><br>Reason: ${r.reject_reason}` : ""),
+    },
+    submitted: {
+      subject: (r) => `${r.employee.full_name} requested permission`,
+      body: (r) => `<strong>${r.employee.full_name}</strong> requested permission on ${r.request_date} from ${r.from_time} to ${r.to_time} ` +
+        `(${r.duration_minutes} min) and is awaiting your approval.`,
     },
   },
 };

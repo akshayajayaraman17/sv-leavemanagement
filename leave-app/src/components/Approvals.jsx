@@ -4,9 +4,13 @@ import {
   decideLeave, decideCompOff,
   fetchPendingTimesheets, decideTimesheet, fetchTimesheetEntries,
   fetchPendingRegularizations, decideRegularization,
+  fetchPendingPermissionsForApprover, decidePermission,
   finalizeSelfReportedAttendance, getMedicalCertificateUrl,
 } from '../lib/api'
+import { formatDuration } from '../lib/permission'
 import { Avatar, Btn, C, Empty, Mono, Spinner, Tabs, card, formatDate, inputStyle, isSelfReported, stripSelfReported } from './UI'
+
+const fmtTime = t => t ? t.slice(0, 5) : '—'
 
 export default function Approvals({ employee, onToast, onPendingChange }) {
   const [tab, setTab]             = useState('leaves')
@@ -14,6 +18,7 @@ export default function Approvals({ employee, onToast, onPendingChange }) {
   const [comps, setComps]         = useState([])
   const [timesheets, setTimesheets] = useState([])
   const [regs, setRegs]           = useState([])
+  const [permissions, setPermissions] = useState([])
   const [loading, setLoading]     = useState(true)
   const [deciding, setDeciding]   = useState(null)
   const [expandedTs, setExpandedTs] = useState(null)
@@ -26,9 +31,9 @@ export default function Approvals({ employee, onToast, onPendingChange }) {
   const [bulkRejectReason, setBulkRejectReason] = useState('')
   const [bulkRejectItems, setBulkRejectItems] = useState({})
 
-  const TAB_LABEL = { comp: 'comp off request', leaves: 'leave request', timesheets: 'timesheet', regs: 'regularization' }
-  const currentList = tab === 'comp' ? comps : tab === 'leaves' ? leaves : tab === 'timesheets' ? timesheets : regs
-  const needsReason = tab === 'timesheets' || tab === 'regs' || tab === 'leaves'
+  const TAB_LABEL = { comp: 'comp off request', leaves: 'leave request', timesheets: 'timesheet', regs: 'regularization', permissions: 'permission request' }
+  const currentList = tab === 'comp' ? comps : tab === 'leaves' ? leaves : tab === 'timesheets' ? timesheets : tab === 'permissions' ? permissions : regs
+  const needsReason = tab === 'timesheets' || tab === 'regs' || tab === 'leaves' || tab === 'permissions'
 
   const switchTab = (id) => {
     setTab(id); setSelected(new Set()); setBulkRejecting(false)
@@ -57,17 +62,19 @@ export default function Approvals({ employee, onToast, onPendingChange }) {
         }
         return { id, ...res }
       }
-      if (tab === 'leaves')     return { id, ...(await decideLeave(id, status, status === 'rejected' ? reasonFor(id) : null)) }
-      if (tab === 'timesheets') return { id, ...(await decideTimesheet(id, status, status === 'rejected' ? reasonFor(id) : null)) }
+      if (tab === 'leaves')      return { id, ...(await decideLeave(id, status, status === 'rejected' ? reasonFor(id) : null)) }
+      if (tab === 'timesheets')  return { id, ...(await decideTimesheet(id, status, status === 'rejected' ? reasonFor(id) : null)) }
+      if (tab === 'permissions') return { id, ...(await decidePermission(id, status, status === 'rejected' ? reasonFor(id) : null)) }
       return { id, ...(await decideRegularization(id, status, status === 'rejected' ? reasonFor(id) : null)) }
     }))
 
     const succeeded = new Set(results.filter(r => !r.error).map(r => r.id))
     const failed = results.length - succeeded.size
-    if (tab === 'comp')       setComps(p => p.filter(c => !succeeded.has(c.id)))
-    if (tab === 'leaves')     setLeaves(p => p.filter(l => !succeeded.has(l.id)))
-    if (tab === 'timesheets') setTimesheets(p => p.filter(t => !succeeded.has(t.id)))
-    if (tab === 'regs')       setRegs(p => p.filter(r => !succeeded.has(r.id)))
+    if (tab === 'comp')        setComps(p => p.filter(c => !succeeded.has(c.id)))
+    if (tab === 'leaves')      setLeaves(p => p.filter(l => !succeeded.has(l.id)))
+    if (tab === 'timesheets')  setTimesheets(p => p.filter(t => !succeeded.has(t.id)))
+    if (tab === 'permissions') setPermissions(p => p.filter(x => !succeeded.has(x.id)))
+    if (tab === 'regs')        setRegs(p => p.filter(r => !succeeded.has(r.id)))
     setBulkBusy(false); setBulkRejecting(false); setBulkRejectReason(''); setBulkRejectItems({}); setSelected(new Set())
     if (succeeded.size) onToast(`${succeeded.size} ${TAB_LABEL[tab]}${succeeded.size > 1 ? 's' : ''} ${status}${failed ? ` — ${failed} failed` : ''}`)
     else onToast('Bulk action failed', 'error')
@@ -78,10 +85,11 @@ export default function Approvals({ employee, onToast, onPendingChange }) {
     Promise.all([
       fetchPendingForApprover(employee.id), fetchPendingCompForApprover(employee.id),
       fetchPendingTimesheets(employee.id), fetchPendingRegularizations(employee.id),
-    ]).then(([l, c, ts, r]) => {
-      const err = l.error || c.error || ts.error || r.error
+      fetchPendingPermissionsForApprover(employee.id),
+    ]).then(([l, c, ts, r, p]) => {
+      const err = l.error || c.error || ts.error || r.error || p.error
       if (err) onToast(err.message || 'Failed to load some approvals', 'error')
-      setLeaves(l.data || []); setComps(c.data || []); setTimesheets(ts.data || []); setRegs(r.data || [])
+      setLeaves(l.data || []); setComps(c.data || []); setTimesheets(ts.data || []); setRegs(r.data || []); setPermissions(p.data || [])
     }).finally(() => setLoading(false))
   }
   useEffect(load, [employee.id])
@@ -89,8 +97,8 @@ export default function Approvals({ employee, onToast, onPendingChange }) {
   // Keep the sidebar badge in sync as requests get approved/rejected here.
   useEffect(() => {
     if (loading) return
-    onPendingChange?.(leaves.length + comps.length + timesheets.length + regs.length)
-  }, [loading, leaves.length, comps.length, timesheets.length, regs.length])
+    onPendingChange?.(leaves.length + comps.length + timesheets.length + regs.length + permissions.length)
+  }, [loading, leaves.length, comps.length, timesheets.length, regs.length, permissions.length])
 
   const loadTsEntries = async (tsId) => {
     if (tsEntries[tsId]) { setExpandedTs(expandedTs === tsId ? null : tsId); return }
@@ -138,11 +146,20 @@ export default function Approvals({ employee, onToast, onPendingChange }) {
     if (error) { onToast(error.message, 'error'); return }
     onToast(`Regularization ${status}`); setRegs(p => p.filter(r => r.id !== reg.id))
   }
+  const handlePermission = async (id, status) => {
+    if (status === 'rejected' && !rejectReason.trim()) { setRejectId(id); return }
+    setDeciding(id)
+    const { error } = await decidePermission(id, status, status === 'rejected' ? rejectReason : null)
+    setDeciding(null); setRejectId(null); setRejectReason('')
+    if (error) { onToast(error.message, 'error'); return }
+    onToast(`Permission request ${status}`); setPermissions(p => p.filter(x => x.id !== id))
+  }
 
   if (loading) return <Spinner />
 
   const items = [
     { id: 'leaves', label: 'Leave requests', count: leaves.length },
+    { id: 'permissions', label: 'Permissions', count: permissions.length },
     { id: 'comp', label: 'Comp off', count: comps.length },
     { id: 'timesheets', label: 'Timesheets', count: timesheets.length },
     { id: 'regs', label: 'Regularizations', count: regs.length },
@@ -241,6 +258,20 @@ export default function Approvals({ employee, onToast, onPendingChange }) {
         onReject: () => { if (rejectId === l.id && rejectReason.trim()) handleLeave(l.id, 'rejected'); else { setRejectId(l.id); setRejectReason('') } },
         children: (rejectId === l.id || (bulkRejecting && selected.has(l.id)))
           ? <>{rejectId === l.id && rejectInput()}{bulkOverride(l.id)}</>
+          : null,
+      }))))}
+
+      {tab === 'permissions' && (permissions.length === 0 ? <Empty text="All permission approvals done" /> : listCard(permissions.map(p => row({
+        id: p.id, initials: p.employee?.avatar_initials, avBg: C.amberBg, avFg: '#8a6a22',
+        who: p.employee?.full_name, code: p.employee?.employee_code || p.employee?.department,
+        what: `Permission · ${formatDate(p.request_date)} · ${fmtTime(p.from_time)}–${fmtTime(p.to_time)}`,
+        reason: p.reason,
+        after: formatDuration(p.duration_minutes),
+        rejectLabel: rejectId === p.id ? 'Confirm reject' : 'Reject',
+        onApprove: () => handlePermission(p.id, 'approved'),
+        onReject: () => { if (rejectId === p.id && rejectReason.trim()) handlePermission(p.id, 'rejected'); else { setRejectId(p.id); setRejectReason('') } },
+        children: (rejectId === p.id || (bulkRejecting && selected.has(p.id)))
+          ? <>{rejectId === p.id && rejectInput()}{bulkOverride(p.id)}</>
           : null,
       }))))}
 

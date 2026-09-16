@@ -4,10 +4,12 @@
 // components independently re-deriving "what counts as a notification".
 import {
   fetchMyLeaves, fetchMyCompRequests, fetchLeaveAdjustments,
-  fetchMyRegularizations, fetchTimesheetHistory,
+  fetchMyRegularizations, fetchTimesheetHistory, fetchMyPermissions,
   fetchPendingForApprover, fetchPendingCompForApprover,
-  fetchPendingTimesheets, fetchPendingRegularizations, isApproverForAnyone,
+  fetchPendingTimesheets, fetchPendingRegularizations, fetchPendingPermissionsForApprover,
+  isApproverForAnyone,
 } from './api'
+import { formatDuration } from './permission'
 import { C, formatDate } from '../components/UI'
 
 export const NOTIF_SEEN_KEY = 'notif_seen_at'
@@ -29,16 +31,18 @@ export async function fetchNotificationFeed(employee) {
     fetchLeaveAdjustments(employee.id),
     fetchMyRegularizations(employee.id),
     fetchTimesheetHistory(employee.id),
-    isApprover ? fetchPendingForApprover(employee.id)     : Promise.resolve({ data: [] }),
-    isApprover ? fetchPendingCompForApprover(employee.id) : Promise.resolve({ data: [] }),
-    isApprover ? fetchPendingTimesheets(employee.id)      : Promise.resolve({ data: [] }),
-    isApprover ? fetchPendingRegularizations(employee.id) : Promise.resolve({ data: [] }),
+    fetchMyPermissions(employee.id),
+    isApprover ? fetchPendingForApprover(employee.id)        : Promise.resolve({ data: [] }),
+    isApprover ? fetchPendingCompForApprover(employee.id)    : Promise.resolve({ data: [] }),
+    isApprover ? fetchPendingTimesheets(employee.id)         : Promise.resolve({ data: [] }),
+    isApprover ? fetchPendingRegularizations(employee.id)    : Promise.resolve({ data: [] }),
+    isApprover ? fetchPendingPermissionsForApprover(employee.id) : Promise.resolve({ data: [] }),
   ]
 
   const results = await Promise.all(calls)
   const [
-    leaves, comps, adjustments, regs, timesheets,
-    pendingLeaves, pendingComps, pendingTs, pendingRegs,
+    leaves, comps, adjustments, regs, timesheets, permissions,
+    pendingLeaves, pendingComps, pendingTs, pendingRegs, pendingPermissions,
   ] = results
   const error = results.find(r => r?.error)?.error
 
@@ -96,6 +100,19 @@ export async function fetchNotificationFeed(employee) {
     })
   }
 
+  for (const p of (permissions.data || [])) {
+    if (p.status !== 'approved' && p.status !== 'rejected') continue
+    feed.push({
+      id: `permission-${p.id}`,
+      date: p.decided_on || p.applied_on,
+      color: p.status === 'approved' ? C.green : C.red,
+      bg: p.status === 'approved' ? C.greenBg : C.redBg,
+      icon: p.status === 'approved' ? '✓' : '✕',
+      title: `Permission request ${p.status}`,
+      subtitle: `${formatDate(p.request_date)} · ${formatDuration(p.duration_minutes)}${p.reject_reason ? ` · ${p.reject_reason}` : ''}`,
+    })
+  }
+
   for (const t of (timesheets.data || [])) {
     if (t.status !== 'approved' && t.status !== 'rejected') continue
     feed.push({
@@ -115,6 +132,7 @@ export async function fetchNotificationFeed(employee) {
       [pendingComps.data  || [], 'comp off request'],
       [pendingTs.data     || [], 'timesheet'],
       [pendingRegs.data   || [], 'regularization request'],
+      [pendingPermissions.data || [], 'permission request'],
     ]
     for (const [list, label] of pendingGroups) {
       if (list.length === 0) continue

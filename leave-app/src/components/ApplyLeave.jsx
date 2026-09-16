@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  fetchLeaveBalance, fetchEmployees, applyLeave, applyCompOff, getApproverForEmployee,
-  uploadMedicalCertificate, fetchMyCompRequests, fetchHolidays, fetchAttendanceHistory,
-  fetchAttendanceForDate, checkIn,
+  fetchLeaveBalance, fetchEmployees, applyLeave, applyCompOff, applyPermission,
+  getApproverForEmployee, uploadMedicalCertificate, fetchMyCompRequests, fetchHolidays,
+  fetchAttendanceHistory, fetchAttendanceForDate, checkIn, fetchPermissionUsageThisMonth,
 } from '../lib/api'
 import { workingDays } from '../lib/leaveDays'
+import { durationMinutes, formatDuration, MAX_PERMISSIONS_PER_MONTH, MAX_PERMISSION_MINUTES, validatePermission } from '../lib/permission'
 import { Btn, C, Field, Mono, Segmented, Spinner, SELF_REPORTED_TAG, card, formatDate, inputStyle } from './UI'
-import { todayStr } from '../lib/dates'
+import { todayStr, monthBounds } from '../lib/dates'
 
 const today = todayStr()
 
@@ -68,18 +69,27 @@ function RangeCalendar({ from, to, minDate, single, onPick }) {
   )
 }
 
-// ── Apply (leave + comp off in one screen) ────────────────────────────────────
+// ── Apply (leave + permission + comp off in one screen) ───────────────────────
 export function Apply({ employee, onToast }) {
   const [mode, setMode] = useState('leave')
+  const [halfDayPreset, setHalfDayPreset] = useState(false)
   return (
     <div>
       <Segmented
-        items={[{ id: 'leave', label: 'Leave request' }, { id: 'comp', label: 'Comp off' }]}
+        items={[
+          { id: 'leave', label: 'Leave request' },
+          { id: 'permission', label: 'Request permission' },
+          { id: 'comp', label: 'Comp off' },
+        ]}
         value={mode} onChange={setMode} style={{ marginBottom: 18 }}
       />
       {mode === 'leave'
-        ? <ApplyLeave employee={employee} onToast={onToast} />
-        : <ApplyCompOff employee={employee} onToast={onToast} />}
+        ? <ApplyLeave employee={employee} onToast={onToast}
+            presetHalfDay={halfDayPreset} onConsumeHalfDayPreset={() => setHalfDayPreset(false)} />
+        : mode === 'permission'
+          ? <ApplyPermission employee={employee} onToast={onToast}
+              onGoToHalfDayLeave={() => { setHalfDayPreset(true); setMode('leave') }} />
+          : <ApplyCompOff employee={employee} onToast={onToast} />}
     </div>
   )
 }
@@ -96,7 +106,7 @@ function Done({ tone, title, sub, onAgain, againLabel }) {
 }
 
 // ── Apply Leave ────────────────────────────────────────────────────────────────
-export function ApplyLeave({ employee, onToast }) {
+export function ApplyLeave({ employee, onToast, presetHalfDay, onConsumeHalfDayPreset }) {
   const [balances, setBalances]   = useState([])
   const [approver, setApprover]   = useState(null)
   const [holidays, setHolidays]   = useState(new Set())
@@ -106,6 +116,15 @@ export function ApplyLeave({ employee, onToast }) {
   const [loading, setLoading]     = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [done, setDone]           = useState(false)
+
+  // Arriving here from "Apply for Half-Day Leave" on the permission form
+  // (once the employee has used their 2 permissions for the month) — jump
+  // straight into half-day mode instead of making them tick the box again.
+  useEffect(() => {
+    if (!presetHalfDay) return
+    setForm(f => ({ ...f, half: true, to: f.from }))
+    onConsumeHalfDayPreset?.()
+  }, [presetHalfDay])
 
   useEffect(() => {
     Promise.all([
@@ -305,6 +324,174 @@ export function ApplyLeave({ employee, onToast }) {
 
         <Btn full disabled={submitting} onClick={submit} style={{ marginTop: 16 }}>
           {submitting ? 'Submitting…' : 'Submit request'}
+        </Btn>
+        <div style={{ textAlign: 'center', fontSize: 11.5, color: C.muted, marginTop: 9 }}>
+          Goes to {approver?.full_name?.split(' ')[0] || 'your approver'} for approval
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Apply Permission ───────────────────────────────────────────────────────────
+// A short (<=2h), same-day time-off request, capped at 2 per calendar month.
+// The cap and duration limit are enforced server-side too (see
+// migration-permission-requests.sql) — this form's validation is only so the
+// employee sees the same message before round-tripping to the DB.
+export function ApplyPermission({ employee, onToast, onGoToHalfDayLeave }) {
+  const [approver, setApprover]   = useState(null)
+  const [used, setUsed]           = useState(0)
+  const [form, setForm]           = useState({ date: today, fromTime: '', toTime: '', reason: '' })
+  const [errs, setErrs]           = useState({})
+  const [loading, setLoading]     = useState(true)
+  const [usageLoading, setUsageLoading] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [done, setDone]           = useState(false)
+
+  useEffect(() => {
+    Promise.all([fetchEmployees(), getApproverForEmployee(employee.id)]).then(([e, a]) => {
+      if (e.error) onToast?.(e.error.message || 'Failed to load some data', 'error')
+      if (a.data) setApprover((e.data || []).find(x => x.id === a.data) || null)
+    }).finally(() => setLoading(false))
+  }, [employee.id])
+
+  // Re-checked whenever the picked date crosses into a different calendar
+  // month, so the "N remaining" badge always reflects that month's usage —
+  // this is what makes the count reset automatically month to month.
+  const monthKey = (form.date || today).slice(0, 7)
+  useEffect(() => {
+    setUsageLoading(true)
+    const { start, end } = monthBounds(form.date || today)
+    fetchPermissionUsageThisMonth(employee.id, start, end).then(({ count, error }) => {
+      if (error) { onToast?.(error.message || 'Failed to load permission usage', 'error'); return }
+      setUsed(count)
+    }).finally(() => setUsageLoading(false))
+  }, [employee.id, monthKey])
+
+  const remaining = Math.max(0, MAX_PERMISSIONS_PER_MONTH - used)
+  const limitReached = remaining <= 0
+  const mins = durationMinutes(form.fromTime, form.toTime)
+
+  const setField = (patch) => { setForm(f => ({ ...f, ...patch })); setErrs({}) }
+
+  const submit = async () => {
+    const e = validatePermission(form, remaining)
+    if (Object.keys(e).length) {
+      setErrs(e)
+      onToast(e.limit || e.toTime || e.date || e.fromTime || e.reason || 'Check the highlighted fields', 'error')
+      return
+    }
+    setSubmitting(true)
+    const { error } = await applyPermission({
+      employee_id: employee.id, request_date: form.date,
+      from_time: form.fromTime, to_time: form.toTime, reason: form.reason.trim(),
+      approver_id: approver?.id || null,
+    })
+    setSubmitting(false)
+    if (error) {
+      onToast(error.message || 'Failed to submit', 'error')
+      if (error.message?.includes('already used your 2 permissions')) setUsed(MAX_PERMISSIONS_PER_MONTH)
+      return
+    }
+    // Optimistic — the just-submitted (pending) request now counts toward
+    // this month's cap, so "remaining" should reflect that immediately.
+    setUsed(u => u + 1)
+    setDone(true)
+  }
+
+  if (loading) return <Spinner />
+  if (done) return <Done tone={C.blue} title="Permission request submitted"
+    sub={`Sent to ${approver?.full_name || 'your approver'} — you'll be notified once decided.`}
+    againLabel="Request another"
+    onAgain={() => { setDone(false); setForm({ date: today, fromTime: '', toTime: '', reason: '' }); setErrs({}) }} />
+
+  const canSubmit = !submitting && !usageLoading && !limitReached
+    && form.date && form.fromTime && form.toTime && form.reason.trim() && mins > 0 && mins <= MAX_PERMISSION_MINUTES
+
+  return (
+    <div className="split-narrow" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, alignItems: 'start' }}>
+      <div style={{ ...card, padding: '24px 26px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 18 }}>
+          <div style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.muted }}>Permission request</div>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 500,
+            color: limitReached ? C.red : '#2a5c8a', background: limitReached ? C.redBg : '#eaf2fb',
+            border: `1px solid ${limitReached ? C.redLine : '#cfe0f1'}`, borderRadius: 20, padding: '5px 12px',
+          }}>
+            ⏱ {usageLoading ? '…' : remaining} permission{remaining !== 1 ? 's' : ''} remaining this month
+          </div>
+        </div>
+
+        {limitReached && !usageLoading && (
+          <div style={{ marginBottom: 18, padding: '12px 14px', borderRadius: 10, background: C.redBg, border: `1px solid ${C.redLine}`, fontSize: 12.5, color: C.red, lineHeight: 1.6 }}>
+            You have already used your 2 permissions for this month. Please apply for Half-Day Leave instead.
+            {onGoToHalfDayLeave && (
+              <div style={{ marginTop: 8 }}>
+                <Btn sm variant="danger" onClick={onGoToHalfDayLeave}>Apply for Half-Day Leave</Btn>
+              </div>
+            )}
+          </div>
+        )}
+
+        <Field label="Date" error={errs.date}>
+          <input type="date" min={today} value={form.date}
+            onChange={e => setField({ date: e.target.value })} style={inputStyle(errs.date)} />
+        </Field>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Field label="From time" error={errs.fromTime}>
+            <input type="time" value={form.fromTime}
+              onChange={e => setField({ fromTime: e.target.value })} style={inputStyle(errs.fromTime)} />
+          </Field>
+          <Field label="To time" error={errs.toTime}>
+            <input type="time" value={form.toTime}
+              onChange={e => setField({ toTime: e.target.value })} style={inputStyle(errs.toTime)} />
+          </Field>
+        </div>
+        <div style={{ fontSize: 11, color: C.muted, marginTop: -6, marginBottom: 16 }}>
+          ⓘ Maximum permission duration: 2 hours
+        </div>
+
+        <Field label="Reason" error={errs.reason}>
+          <textarea rows={3} value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
+            placeholder="Please enter reason for permission"
+            style={{ ...inputStyle(errs.reason), resize: 'vertical', minHeight: 84 }} />
+        </Field>
+      </div>
+
+      {/* Summary sidebar */}
+      <div style={{ ...card, padding: 22, position: 'sticky', top: 24 }}>
+        <div style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.muted }}>Request summary</div>
+        <div style={{ fontFamily: C.serif, fontSize: 30, lineHeight: 1.15, marginTop: 10 }}>
+          {mins > 0 ? formatDuration(mins) : '—'}
+        </div>
+        <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
+          {form.date ? formatDate(form.date) : 'Review your request details'}
+        </div>
+
+        <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${C.lineSoft}` }}>
+          {[
+            ['Type', 'Permission'],
+            ['Date', form.date ? formatDate(form.date) : '—'],
+            ['From time', form.fromTime || '—'],
+            ['To time', form.toTime || '—'],
+            ['Duration', mins > 0 ? formatDuration(mins) : '—'],
+            ['Reason', form.reason.trim() || '—'],
+            ['Approver', approver?.full_name || '—'],
+          ].map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, padding: '6px 0', fontSize: 12.5 }}>
+              <span style={{ color: C.sub }}>{k}</span>
+              <span style={{ color: C.body, textAlign: 'right', maxWidth: 190, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v}</span>
+            </div>
+          ))}
+        </div>
+
+        <Btn full disabled={!canSubmit} onClick={submit} style={{ marginTop: 16 }}>
+          {submitting ? 'Submitting…' : 'Submit request'}
+        </Btn>
+        <Btn full variant="ghost" style={{ marginTop: 8 }}
+          onClick={() => { setForm({ date: today, fromTime: '', toTime: '', reason: '' }); setErrs({}) }}>
+          Cancel
         </Btn>
         <div style={{ textAlign: 'center', fontSize: 11.5, color: C.muted, marginTop: 9 }}>
           Goes to {approver?.full_name?.split(' ')[0] || 'your approver'} for approval

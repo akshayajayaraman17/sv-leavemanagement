@@ -300,6 +300,72 @@ export const decideLeave = async (id, status, rejectReason = null) => {
   return { data, error }
 }
 
+// ─── Permission Requests ──────────────────────────────────────────────────────
+export const fetchMyPermissions = async (employeeId) => {
+  const { data, error } = await supabase
+    .from('permission_requests')
+    .select('*')
+    .eq('employee_id', employeeId)
+    .order('applied_on', { ascending: false })
+  return { data, error }
+}
+
+export const fetchPendingPermissionsForApprover = async (approverId) => {
+  const { data, error } = await supabase
+    .from('permission_requests')
+    .select('*, employee:employee_id(full_name, avatar_initials, department)')
+    .eq('approver_id', approverId)
+    .eq('status', 'pending')
+    .order('applied_on')
+  return { data, error }
+}
+
+// Permissions counted against the monthly cap — pending + approved only,
+// same convention as leave_requests' no_overlapping_leave exclusion (a
+// rejected or cancelled request never blocks anything). monthStart/monthEnd
+// are "YYYY-MM-DD" bounds from dates.js's monthBounds().
+export const fetchPermissionUsageThisMonth = async (employeeId, monthStart, monthEnd) => {
+  const { count, error } = await supabase
+    .from('permission_requests')
+    .select('id', { count: 'exact', head: true })
+    .eq('employee_id', employeeId)
+    .in('status', ['pending', 'approved'])
+    .gte('request_date', monthStart)
+    .lte('request_date', monthEnd)
+  return { count: count || 0, error }
+}
+
+export const applyPermission = async (payload) => {
+  const { data, error } = await supabase
+    .from('permission_requests')
+    .insert(payload)
+    .select()
+    .single()
+  if (!error && data) notifyNewRequest('permission_requests', data.id)
+  return { data, error }
+}
+
+export const decidePermission = async (id, status, rejectReason = null) => {
+  const { data, error } = await supabase
+    .from('permission_requests')
+    .update({ status, decided_on: new Date().toISOString(), reject_reason: rejectReason })
+    .eq('id', id)
+    .select()
+    .single()
+  if (!error) notifyDecision('permission_requests', id)
+  return { data, error }
+}
+
+export const cancelPermission = async (id) => {
+  const { data, error } = await supabase
+    .from('permission_requests')
+    .update({ status: 'cancelled' })
+    .eq('id', id)
+    .select()
+    .single()
+  return { data, error }
+}
+
 // ─── Comp Off Requests ────────────────────────────────────────────────────────
 export const fetchMyCompRequests = async (employeeId) => {
   const { data, error } = await supabase

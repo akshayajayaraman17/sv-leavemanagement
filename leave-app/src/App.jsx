@@ -6,7 +6,8 @@ import ErrorBoundary from './components/ErrorBoundary'
 import { Toast, C, Spinner, Avatar } from './components/UI'
 import {
   signOut, fetchPendingForApprover, fetchPendingCompForApprover,
-  fetchPendingTimesheets, fetchPendingRegularizations, isApproverForAnyone,
+  fetchPendingTimesheets, fetchPendingRegularizations, fetchPendingPermissionsForApprover,
+  isApproverForAnyone,
 } from './lib/api'
 import { fetchNotificationFeed, getNotifSeenAt } from './lib/notifications'
 import { useToday } from './lib/dates'
@@ -122,6 +123,7 @@ export default function App() {
       Promise.all([
         fetchPendingForApprover(employee.id), fetchPendingCompForApprover(employee.id),
         fetchPendingTimesheets(employee.id), fetchPendingRegularizations(employee.id),
+        fetchPendingPermissionsForApprover(employee.id),
       ]).then(res => {
         if (cancelled) return
         setPendingCount(res.reduce((n, r) => n + (r.data?.length || 0), 0))
