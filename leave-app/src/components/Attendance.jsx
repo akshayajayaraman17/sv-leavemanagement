@@ -4,6 +4,7 @@ import {
   checkIn, checkOut, fetchPunches, addPunch,
   createRegularization, fetchMyRegularizations,
   updateAttendanceStatus, getApproverForEmployee,
+  fetchMyLeaves, fetchHolidays,
 } from '../lib/api'
 import { Badge, Btn, C, Field, Mono, Panel, SecTitle, Spinner, card, formatDate, inputStyle } from './UI'
 import { toDateStr, todayStr as todayStrFn } from '../lib/dates'
@@ -18,19 +19,35 @@ function getWeekDays() {
   monday.setDate(t.getDate() - (day === 0 ? 6 : day - 1))
   return Array.from({ length: 5 }, (_, i) => { const d = new Date(monday); d.setDate(monday.getDate() + i); return toDateStr(d) })
 }
+// Weekdays in the last `n` calendar days, excluding today.
+function recentWeekdays(n) {
+  const t = new Date()
+  const days = []
+  for (let i = 1; i <= n; i++) {
+    const d = new Date(t)
+    d.setDate(t.getDate() - i)
+    if (d.getDay() === 0 || d.getDay() === 6) continue
+    days.push(toDateStr(d))
+  }
+  return days
+}
 const formatTime = ts => ts ? new Date(ts).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '—'
 const DAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
 
-export default function Attendance({ employee, onToast }) {
+export default function Attendance({ employee, onToast, onNavigate }) {
   const [record, setRecord]   = useState(null)
   const [punches, setPunches] = useState([])
   const [history, setHistory] = useState([])
   const [regs, setRegs]       = useState([])
+  const [leaves, setLeaves]   = useState([])
+  const [holidays, setHolidays] = useState([])
   const [loading, setLoading] = useState(true)
   const [locating, setLocating] = useState(false)
   const [locErr, setLocErr]   = useState('')
   const [regForm, setRegForm] = useState(null)
   const [regSaving, setRegSaving] = useState(false)
+  const [missingForm, setMissingForm] = useState(null)
+  const [missingSaving, setMissingSaving] = useState(false)
   const [geoDenied, setGeoDenied] = useState(false)
   const [manualLocation, setManualLocation] = useState('')
   const [manualNotes, setManualNotes]       = useState('')
@@ -40,12 +57,17 @@ export default function Attendance({ employee, onToast }) {
 
   const load = async () => {
     setLoading(true)
-    const [{ data: rec, error: recErr }, { data: hist, error: histErr }, { data: regData, error: regErr }] = await Promise.all([
+    const [
+      { data: rec, error: recErr }, { data: hist, error: histErr }, { data: regData, error: regErr },
+      { data: leaveData, error: leaveErr }, { data: holidayData, error: holErr },
+    ] = await Promise.all([
       fetchTodayAttendance(employee.id), fetchAttendanceHistory(employee.id, 30), fetchMyRegularizations(employee.id),
+      fetchMyLeaves(employee.id), fetchHolidays(),
     ])
-    const err = recErr || histErr || regErr
+    const err = recErr || histErr || regErr || leaveErr || holErr
     if (err) onToast?.(err.message || 'Failed to load attendance data', 'error')
     setRecord(rec || null); setHistory(hist || []); setRegs(regData || [])
+    setLeaves(leaveData || []); setHolidays(holidayData || [])
     if (rec?.id) { const { data: p } = await fetchPunches(rec.id); setPunches(p || []) } else setPunches([])
     setLoading(false)
   }
@@ -118,9 +140,46 @@ export default function Attendance({ employee, onToast }) {
     setRegForm(null); load()
   }
 
+  // A day with no attendance row at all: create the stub row (mirrors a
+  // real check-in, backdated) then request regularization on it — reuses
+  // the same approval trigger as a missing-checkout regularization.
+  const submitMissingDay = async () => {
+    if (!missingForm?.reason?.trim() || !missingForm?.checkInTime || !missingForm?.checkOutTime) return
+    setMissingSaving(true)
+    const checkInTime = new Date(`${missingForm.date}T${missingForm.checkInTime}:00`).toISOString()
+    const checkOutTime = new Date(`${missingForm.date}T${missingForm.checkOutTime}:00`).toISOString()
+    const { data: att, error: attErr } = await checkIn({
+      employee_id: employee.id, date: missingForm.date, check_in_time: checkInTime,
+      check_in_lat: null, check_in_lng: null, check_in_address: 'Regularization',
+      check_out_time: null, check_out_lat: null, check_out_lng: null, check_out_address: null,
+      total_hours: 0, status: 'incomplete',
+    })
+    if (attErr) { onToast?.(attErr.message || 'Failed to submit regularization request', 'error'); setMissingSaving(false); return }
+    await addPunch({ attendance_id: att.id, employee_id: employee.id, punch_type: 'check_in', punch_time: checkInTime, address: 'Regularization' })
+    const { data: approverId } = await getApproverForEmployee(employee.id)
+    const { error } = await createRegularization({
+      attendance_id: att.id, employee_id: employee.id, approver_id: approverId || null,
+      reason: missingForm.reason.trim(), check_out_time: checkOutTime,
+    })
+    setMissingSaving(false)
+    if (error) { onToast?.(error.message || 'Failed to submit regularization request', 'error'); return }
+    setMissingForm(null); load()
+  }
+
   if (loading) return <Spinner />
 
   const incompleteDays = history.filter(h => h.date < todayStr && h.check_in_time && !h.check_out_time && h.status !== 'incomplete')
+
+  // Weekdays with no attendance record and no leave request covering them —
+  // the employee never checked in and never applied for leave that day.
+  const leaveDates = leaves.filter(l => l.status === 'pending' || l.status === 'approved')
+  const holidayDates = new Set(holidays.map(h => h.holiday_date))
+  const missingDays = recentWeekdays(14).filter(d => {
+    if (holidayDates.has(d)) return false
+    if (history.some(h => h.date === d)) return false
+    if (leaveDates.some(l => d >= l.from_date && d <= l.to_date)) return false
+    return true
+  })
   const hasRegRequest = (id) => regs.some(r => r.attendance_id === id)
   const hours = record?.total_hours || 0
   const ringPct = Math.min(100, (hours / MIN_HOURS) * 100)
@@ -154,6 +213,42 @@ export default function Attendance({ employee, onToast }) {
           <div style={{ display: 'flex', gap: 8 }}>
             <Btn full disabled={regSaving || !regForm.reason.trim() || !regForm.checkOutTime} onClick={submitRegularization}>{regSaving ? 'Submitting…' : 'Submit request'}</Btn>
             <Btn variant="ghost" onClick={() => setRegForm(null)}>Cancel</Btn>
+          </div>
+        </div>
+      )}
+
+      {/* Days with no leave applied and no check-in/out at all */}
+      {missingDays.map(d => (
+        <div key={d} style={{ ...card, border: `1px solid ${C.amberLine}`, background: '#fdfaf4' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#8a6a22', marginBottom: 4 }}>No attendance recorded — {formatDate(d)}</div>
+              <div style={{ fontSize: 12, color: '#8a6a22' }}>No check-in/out and no leave applied for this day. Regularize it or apply for leave.</div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+              <Btn sm variant="ghost" onClick={() => onNavigate?.('apply')}>Apply leave</Btn>
+              <Btn sm onClick={() => setMissingForm({ date: d, checkInTime: '', checkOutTime: '', reason: '' })}>Regularize</Btn>
+            </div>
+          </div>
+        </div>
+      ))}
+
+      {missingForm && (
+        <div style={{ ...card, border: `1px solid ${C.amberLine}`, background: '#fdfaf4' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#8a6a22', marginBottom: 4 }}>Request regularization — {formatDate(missingForm.date)}</div>
+          <div style={{ fontSize: 12, color: '#8a6a22', marginBottom: 12 }}>Give your approximate check-in/check-out times and a reason.</div>
+          <Field label="Proposed check-in time">
+            <input type="time" value={missingForm.checkInTime} onChange={e => setMissingForm(f => ({ ...f, checkInTime: e.target.value }))} style={inputStyle()} />
+          </Field>
+          <Field label="Proposed check-out time">
+            <input type="time" value={missingForm.checkOutTime} onChange={e => setMissingForm(f => ({ ...f, checkOutTime: e.target.value }))} style={inputStyle()} />
+          </Field>
+          <Field label="Reason">
+            <input value={missingForm.reason} onChange={e => setMissingForm(f => ({ ...f, reason: e.target.value }))} placeholder="e.g. Forgot to check in, system was down" style={inputStyle()} />
+          </Field>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Btn full disabled={missingSaving || !missingForm.reason.trim() || !missingForm.checkInTime || !missingForm.checkOutTime} onClick={submitMissingDay}>{missingSaving ? 'Submitting…' : 'Submit request'}</Btn>
+            <Btn variant="ghost" onClick={() => setMissingForm(null)}>Cancel</Btn>
           </div>
         </div>
       )}

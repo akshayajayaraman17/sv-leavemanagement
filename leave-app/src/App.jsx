@@ -253,7 +253,7 @@ export default function App() {
               <Suspense fallback={<Spinner />}>
                 {tab === 'dash'          && <Dashboard     employee={employee} onToast={showToast} onNavigate={goTab} canApprove={isApprover} />}
                 {tab === 'notifications' && <Notifications employee={employee} onToast={showToast} />}
-                {tab === 'attendance'    && <Attendance    employee={employee} onToast={showToast} />}
+                {tab === 'attendance'    && <Attendance    employee={employee} onToast={showToast} onNavigate={goTab} />}
                 {tab === 'timesheet'     && <Timesheet     employee={employee} onToast={showToast} />}
                 {tab === 'apply'         && <Apply         employee={employee} onToast={showToast} />}
                 {tab === 'history'       && <MyLeaves      employee={employee} onToast={showToast} />}
