@@ -29,6 +29,7 @@ export default function Dashboard({ employee, onToast, onNavigate, canApprove = 
   const [deciding, setDeciding] = useState(null)
   const [punching, setPunching] = useState(false)
   const [teamFilter, setTeamFilter] = useState('in') // 'in' | 'out' | 'leave'
+  const [teamShowAll, setTeamShowAll] = useState(false)
 
   useEffect(() => {
     setLoading(true)
@@ -212,7 +213,7 @@ export default function Dashboard({ employee, onToast, onNavigate, canApprove = 
               <Segmented
                 items={filterItems}
                 value={activeFilter}
-                onChange={setTeamFilter}
+                onChange={id => { setTeamFilter(id); setTeamShowAll(false) }}
               />
             }
           >
@@ -222,7 +223,7 @@ export default function Dashboard({ employee, onToast, onNavigate, canApprove = 
                   : activeFilter === 'out' ? 'Everyone has checked in.'
                   : 'Nobody is on leave today.'}
               </div>
-            ) : shown.slice(0, 10).map(t => {
+            ) : (teamShowAll ? shown : shown.slice(0, 10)).map(t => {
               const label = activeFilter === 'in'
                 ? (t.checkedOut ? 'Checked in & out' : 'Checked in')
                 : activeFilter === 'leave' ? 'On leave' : 'Not checked in'
@@ -246,7 +247,10 @@ export default function Dashboard({ employee, onToast, onNavigate, canApprove = 
               )
             })}
             {shown.length > 10 && (
-              <div style={{ fontSize: 11.5, color: C.faint, paddingTop: 10 }}>+{shown.length - 10} more</div>
+              <button onClick={() => setTeamShowAll(v => !v)}
+                style={{ marginTop: 10, padding: 0, border: 'none', background: 'none', fontSize: 12, color: C.blue, cursor: 'pointer', fontFamily: 'inherit' }}>
+                {teamShowAll ? 'Show less' : `Show all ${shown.length} (+${shown.length - 10} more)`}
+              </button>
             )}
           </Panel>
         )
