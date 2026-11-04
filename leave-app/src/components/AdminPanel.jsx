@@ -4,7 +4,7 @@ import {
   fetchSalary, upsertSalary, fetchApprovers, setApprovers,
   fetchLeaveTypes, fetchLeaveAdjustments, upsertLeaveAdjustment, grantCompOff, adminAddLeave,
   fetchLeaveBalance, fetchHolidays, createHoliday, deleteHoliday, fetchAuditLog,
-  fetchAllLeaveRequests, fetchAllAttendance,
+  fetchAllLeaveRequests, fetchAllAttendance, fetchAllTimesheetEntries,
   fetchMyLeaves, fetchTimesheetHistory, fetchTimesheetEntries, fetchAttendanceHistory, fetchPunches, getMedicalCertificateUrl,
 } from '../lib/api'
 import { workingDays } from '../lib/leaveDays'
@@ -1121,91 +1121,316 @@ function AuditLogPanel({ onToast }) {
   )
 }
 
-// ── CSV Export ─────────────────────────────────────────────────────────────────
+// ── Reports: list view + filtered CSV export ──────────────────────────────────
+// Each report shows its rows in a table; filters narrow the table and the
+// Export CSV button downloads exactly the filtered rows.
+const REPORT_PAGE_SIZE = 25
+const ROW_CAP          = 1000   // attendance + timesheet reports load at most this many rows
+
+const timeOf = (ts) => ts ? new Date(ts).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : ''
+const cap    = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1) : ''
+
+function ReportFilter({ label, children }) {
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: 11, color: C.faint, marginBottom: 4 }}>{label}</div>
+      {children}
+    </div>
+  )
+}
+
 function ExportPanel({ employees, onToast }) {
-  const [exporting, setExporting] = useState(null)
-  const [leaveRange, setLeaveRange] = useState({ from: '', to: '' })
-  const [attRange,   setAttRange]   = useState({ from: '', to: '' })
+  const [report, setReport]     = useState('employees')   // 'employees' | 'leave' | 'attendance' | 'timesheets'
+  const [from, setFrom]         = useState('')
+  const [to, setTo]             = useState('')
+  const [employeeId, setEmpId]  = useState('')
+  const [dept, setDept]         = useState('')
+  const [location, setLocation] = useState('')
+  const [status, setStatus]     = useState('')
+  const [role, setRole]         = useState('')
+  const [leaveType, setLeaveType] = useState('')
+  const [search, setSearch]     = useState('')
+  const [page, setPage]         = useState(0)
+  const [rows, setRows]         = useState([])
+  const [loading, setLoading]   = useState(false)
+  const [leaveTypes, setLeaveTypes] = useState([])
 
-  const exportEmployees = () => {
-    setExporting('employees')
-    downloadCsv('employees.csv', rowsToCsv(employees, [
-      { key: 'employee_code', label: 'Employee Code' },
-      { key: 'full_name',     label: 'Full Name' },
-      { key: 'email',         label: 'Email' },
-      { key: 'department',    label: 'Department' },
-      { key: 'designation',   label: 'Designation' },
-      { key: 'role',          label: 'Role' },
-      { key: 'joining_date',  label: 'Joining Date' },
-      { key: 'is_active',     label: 'Active' },
-      { key: 'exit_date',     label: 'Exit Date' },
-      { key: 'exit_reason',   label: 'Exit Reason' },
-    ]))
-    setExporting(null)
-    onToast('Employees exported')
-  }
+  useEffect(() => { fetchLeaveTypes().then(({ data }) => setLeaveTypes(data || [])) }, [])
 
-  const exportLeaveRequests = async () => {
-    setExporting('leave')
-    const { data, error } = await fetchAllLeaveRequests(leaveRange)
-    setExporting(null)
-    if (error) { onToast(error.message, 'error'); return }
-    downloadCsv('leave-requests.csv', rowsToCsv(data || [], [
-      { key: 'employee.employee_code', label: 'Employee Code' },
-      { key: 'employee.full_name',     label: 'Employee' },
-      { key: 'employee.department',    label: 'Department' },
-      { key: 'leave_type',             label: 'Leave Type' },
-      { key: 'from_date',              label: 'From' },
-      { key: 'to_date',                label: 'To' },
-      { key: 'days',                   label: 'Days' },
-      { key: 'status',                 label: 'Status' },
-      { key: 'applied_on',             label: 'Applied On' },
-      { key: 'decided_on',             label: 'Decided On' },
-    ]))
-    onToast('Leave requests exported')
-  }
-
-  const exportAttendance = async () => {
-    setExporting('attendance')
-    const { data, error } = await fetchAllAttendance(1000, attRange)
-    setExporting(null)
-    if (error) { onToast(error.message, 'error'); return }
-    downloadCsv('attendance.csv', rowsToCsv(data || [], [
-      { key: 'employee.full_name',  label: 'Employee' },
-      { key: 'employee.department', label: 'Department' },
-      { key: 'date',                label: 'Date' },
-      { key: 'check_in_time',       label: 'Check In' },
-      { key: 'check_out_time',      label: 'Check Out' },
-      { key: 'total_hours',         label: 'Total Hours' },
-      { key: 'status',              label: 'Status' },
-    ]))
-    onToast('Attendance exported')
-  }
-
-  const dateRangeInputs = (range, setRange) => (
-    <div style={{ marginBottom: 10 }}>
-      <div style={{ fontSize: 11, color: C.faint, marginBottom: 4 }}>Date range (optional)</div>
-      <div style={{ display: 'flex', gap: 6 }}>
-        <input type="date" value={range.from} onChange={e => setRange(r => ({ ...r, from: e.target.value }))} style={{ ...inputStyle(), padding: '6px 8px', fontSize: 12 }} />
-        <input type="date" value={range.to} onChange={e => setRange(r => ({ ...r, to: e.target.value }))} style={{ ...inputStyle(), padding: '6px 8px', fontSize: 12 }} />
-      </div>
-    </div>
+  const leaveTypeLabel = useMemo(
+    () => Object.fromEntries(leaveTypes.map(t => [t.code, t.label])),
+    [leaveTypes],
   )
 
-  const exportRow = (title, desc, key, onClick, rangeControls) => (
-    <div style={{ ...card, marginBottom: 12 }}>
-      <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>{title}</div>
-      <div style={{ fontSize: 12, color: C.sub, marginBottom: 12 }}>{desc}</div>
-      {rangeControls}
-      <Btn sm disabled={exporting === key} onClick={onClick}>{exporting === key ? 'Exporting…' : 'Export CSV'}</Btn>
-    </div>
+  // Switching report clears report-specific filters (status values differ per report).
+  const switchReport = (id) => {
+    setReport(id); setStatus(''); setRole(''); setLeaveType(''); setPage(0)
+  }
+
+  const resetFilters = () => {
+    setFrom(''); setTo(''); setEmpId(''); setDept(''); setLocation('')
+    setStatus(''); setRole(''); setLeaveType(''); setSearch(''); setPage(0)
+  }
+
+  // Leave and attendance come from the server; date range and employee are
+  // applied there so the attendance row cap covers the right records.
+  useEffect(() => {
+    if (report === 'employees') return
+    let cancelled = false
+    setLoading(true)
+    const req = report === 'leave'
+      ? fetchAllLeaveRequests({ from, to, employeeId })
+      : report === 'timesheets'
+        ? fetchAllTimesheetEntries(ROW_CAP, { from, to, employeeId })
+        : fetchAllAttendance(ROW_CAP, { from, to, employeeId })
+    req.then(({ data, error }) => {
+      if (cancelled) return
+      if (error) onToast(error.message, 'error')
+      setRows(data || [])
+    }).finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [report, from, to, employeeId])
+
+  useEffect(() => { setPage(0) }, [from, to, employeeId, dept, location, status, role, leaveType, search])
+
+  const departments = useMemo(
+    () => [...new Set(employees.map(e => e.department).filter(Boolean))].sort(),
+    [employees],
   )
+  const sortedEmployees = useMemo(
+    () => [...employees].sort((a, b) => (a.full_name || '').localeCompare(b.full_name || '')),
+    [employees],
+  )
+
+  const columns = report === 'employees' ? [
+    { label: 'Employee Code', get: r => r.employee_code },
+    { label: 'Full Name',     get: r => r.full_name },
+    { label: 'Email',         get: r => r.email },
+    { label: 'Department',    get: r => r.department },
+    { label: 'Designation',   get: r => r.designation },
+    { label: 'Location',      get: r => r.location },
+    { label: 'Role',          get: r => ROLES[r.role] || r.role },
+    { label: 'Joining Date',  get: r => r.joining_date, date: true },
+    { label: 'Status',        get: r => r.is_active === false ? 'Former' : 'Active' },
+    { label: 'Exit Date',     get: r => r.exit_date, date: true },
+    { label: 'Exit Reason',   get: r => r.exit_reason },
+  ] : report === 'leave' ? [
+    { label: 'Employee Code', get: r => r.employee?.employee_code },
+    { label: 'Employee',      get: r => r.employee?.full_name },
+    { label: 'Department',    get: r => r.employee?.department },
+    { label: 'Leave Type',    get: r => leaveTypeLabel[r.leave_type] || r.leave_type },
+    { label: 'From',          get: r => r.from_date, date: true },
+    { label: 'To',            get: r => r.to_date, date: true },
+    { label: 'Days',          get: r => r.days },
+    { label: 'Status',        get: r => cap(r.status) },
+    { label: 'Applied On',    get: r => r.applied_on, date: true },
+    { label: 'Decided On',    get: r => r.decided_on, date: true },
+  ] : report === 'timesheets' ? [
+    { label: 'Employee Code', get: r => r.employee?.employee_code },
+    { label: 'Employee',      get: r => r.employee?.full_name },
+    { label: 'Department',    get: r => r.employee?.department },
+    { label: 'Date',          get: r => r.date, date: true },
+    { label: 'Project',       get: r => r.project },
+    { label: 'Jira Issue',    get: r => r.jira_issue_key },
+    { label: 'Task',          get: r => r.task_description, wrap: true },
+    { label: 'Hours',         get: r => r.hours != null ? Number(r.hours).toFixed(2) : '' },
+    { label: 'Week Of',       get: r => r.timesheet?.week_start, date: true },
+    { label: 'Status',        get: r => cap(r.timesheet?.status) },
+  ] : [
+    { label: 'Employee Code', get: r => r.employee?.employee_code },
+    { label: 'Employee',      get: r => r.employee?.full_name },
+    { label: 'Department',    get: r => r.employee?.department },
+    { label: 'Date',          get: r => r.date, date: true },
+    { label: 'Check In',      get: r => timeOf(r.check_in_time) },
+    { label: 'Check Out',     get: r => timeOf(r.check_out_time) },
+    { label: 'Total Hours',   get: r => r.total_hours != null ? Number(r.total_hours).toFixed(2) : '' },
+    { label: 'Status',        get: r => cap(r.status) },
+  ]
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (report === 'employees') {
+      return employees.filter(e =>
+        (!employeeId || e.id === employeeId) &&
+        (!dept || e.department === dept) &&
+        (!location || e.location === location) &&
+        (!role || e.role === role) &&
+        (!status || (status === 'former' ? e.is_active === false : e.is_active !== false)) &&
+        (!from || (e.joining_date && e.joining_date >= from)) &&
+        (!to   || (e.joining_date && e.joining_date <= to)) &&
+        (!q || [e.full_name, e.email, e.employee_code, e.designation].some(v => v?.toLowerCase().includes(q)))
+      )
+    }
+    return rows.filter(r =>
+      (!dept || r.employee?.department === dept) &&
+      (!location || r.employee?.location === location) &&
+      (!status || (report === 'timesheets' ? r.timesheet?.status : r.status) === status) &&
+      (report !== 'leave' || !leaveType || r.leave_type === leaveType) &&
+      (!q || [r.employee?.full_name, r.employee?.employee_code, r.project, r.jira_issue_key, r.task_description]
+        .some(v => v?.toLowerCase().includes(q)))
+    )
+  }, [report, employees, rows, employeeId, dept, location, role, status, leaveType, from, to, search])
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / REPORT_PAGE_SIZE))
+  const safePage  = Math.min(page, pageCount - 1)
+  const pageRows  = filtered.slice(safePage * REPORT_PAGE_SIZE, (safePage + 1) * REPORT_PAGE_SIZE)
+
+  const exportCsv = () => {
+    if (filtered.length === 0) { onToast('Nothing to export — no rows match the filters', 'error'); return }
+    const csvCols = columns.map((c, i) => ({ key: String(i), label: c.label }))
+    const csvRows = filtered.map(r => Object.fromEntries(columns.map((c, i) => [String(i), c.get(r) ?? ''])))
+    const base = report === 'employees' ? 'employees' : report === 'leave' ? 'leave-requests' : report
+    const range = from || to ? `_${from || 'start'}_to_${to || todayStr()}` : ''
+    downloadCsv(`${base}${range}.csv`, rowsToCsv(csvRows, csvCols))
+    onToast(`Exported ${filtered.length} row${filtered.length !== 1 ? 's' : ''}`)
+  }
+
+  const statusOptions = report === 'employees'
+    ? [['active', 'Active'], ['former', 'Former']]
+    : report === 'leave'
+      ? [['pending', 'Pending'], ['approved', 'Approved'], ['rejected', 'Rejected'], ['cancelled', 'Cancelled']]
+      : report === 'timesheets'
+        ? [['draft', 'Draft'], ['submitted', 'Submitted'], ['approved', 'Approved'], ['rejected', 'Rejected']]
+        : [['present', 'Present'], ['incomplete', 'Incomplete'], ['absent', 'Absent']]
+
+  const sel = { ...inputStyle(), padding: '6px 8px', fontSize: 12 }
+  const anyFilter = from || to || employeeId || dept || location || status || role || leaveType || search
+  const capped = (report === 'attendance' || report === 'timesheets') && rows.length >= ROW_CAP
+  const totalHours = report === 'timesheets'
+    ? filtered.reduce((sum, r) => sum + (Number(r.hours) || 0), 0)
+    : null
 
   return (
     <div>
-      {exportRow('Employee roster', `All ${employees.length} employees with contact and role details.`, 'employees', exportEmployees)}
-      {exportRow('Leave requests', 'All leave requests across the organization, any status.', 'leave', exportLeaveRequests, dateRangeInputs(leaveRange, setLeaveRange))}
-      {exportRow('Attendance', 'Limited to the most recent 1,000 rows — narrow the date range below if you need older records reliably included.', 'attendance', exportAttendance, dateRangeInputs(attRange, setAttRange))}
+      <Segmented
+        items={[
+          { id: 'employees',  label: 'Employees' },
+          { id: 'leave',      label: 'Leave requests' },
+          { id: 'attendance', label: 'Attendance' },
+          { id: 'timesheets', label: 'Timesheets' },
+        ]}
+        value={report}
+        onChange={switchReport}
+        style={{ marginBottom: 14 }}
+      />
+
+      <div style={{ ...card, marginBottom: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 10 }}>
+          <ReportFilter label={report === 'employees' ? 'Joined from' : 'From date'}>
+            <input type="date" value={from} max={to || undefined} onChange={e => setFrom(e.target.value)} style={sel} />
+          </ReportFilter>
+          <ReportFilter label={report === 'employees' ? 'Joined to' : 'To date'}>
+            <input type="date" value={to} min={from || undefined} onChange={e => setTo(e.target.value)} style={sel} />
+          </ReportFilter>
+          <ReportFilter label="Employee">
+            <select value={employeeId} onChange={e => setEmpId(e.target.value)} style={sel}>
+              <option value="">All employees</option>
+              {sortedEmployees.map(e => (
+                <option key={e.id} value={e.id}>{e.full_name}{e.employee_code ? ` (${e.employee_code})` : ''}</option>
+              ))}
+            </select>
+          </ReportFilter>
+          <ReportFilter label="Department">
+            <select value={dept} onChange={e => setDept(e.target.value)} style={sel}>
+              <option value="">All departments</option>
+              {departments.map(d => <option key={d}>{d}</option>)}
+            </select>
+          </ReportFilter>
+          <ReportFilter label="Location">
+            <select value={location} onChange={e => setLocation(e.target.value)} style={sel}>
+              <option value="">All locations</option>
+              {REGIONS.map(r => <option key={r}>{r}</option>)}
+            </select>
+          </ReportFilter>
+          <ReportFilter label="Status">
+            <select value={status} onChange={e => setStatus(e.target.value)} style={sel}>
+              <option value="">Any status</option>
+              {statusOptions.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </ReportFilter>
+          {report === 'employees' && (
+            <ReportFilter label="Role">
+              <select value={role} onChange={e => setRole(e.target.value)} style={sel}>
+                <option value="">All roles</option>
+                {Object.entries(ROLES).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </ReportFilter>
+          )}
+          {report === 'leave' && (
+            <ReportFilter label="Leave type">
+              <select value={leaveType} onChange={e => setLeaveType(e.target.value)} style={sel}>
+                <option value="">All leave types</option>
+                {leaveTypes.map(t => <option key={t.code} value={t.code}>{t.label}</option>)}
+              </select>
+            </ReportFilter>
+          )}
+          <ReportFilter label="Search">
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Name, code…" style={sel} />
+          </ReportFilter>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 12, color: C.sub }}>
+            {loading ? 'Loading…' : `${filtered.length} row${filtered.length !== 1 ? 's' : ''} match`}
+            {!loading && totalHours != null && filtered.length > 0 && (
+              <span style={{ marginLeft: 10, fontWeight: 600, color: C.navy }}>· {totalHours.toFixed(2)} h total</span>
+            )}
+            {anyFilter && (
+              <span onClick={resetFilters} style={{ marginLeft: 10, color: C.blue, cursor: 'pointer' }}>Clear filters</span>
+            )}
+          </div>
+          <Btn sm disabled={loading || filtered.length === 0} onClick={exportCsv}>
+            Export CSV{filtered.length ? ` (${filtered.length})` : ''}
+          </Btn>
+        </div>
+        {capped && (
+          <div style={{ fontSize: 11.5, color: '#8a6a22', marginTop: 8 }}>
+            Showing the most recent {ROW_CAP.toLocaleString()} {report === 'timesheets' ? 'timesheet entries' : 'attendance records'}. Narrow the date range or pick an employee to include older ones.
+          </div>
+        )}
+      </div>
+
+      <div style={{ ...card, padding: 0, overflowX: 'auto' }}>
+        {loading ? <div style={{ padding: 20 }}><Spinner /></div>
+          : filtered.length === 0 ? <div style={{ padding: 20 }}><Empty text="No rows match these filters" /></div>
+          : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+              <thead>
+                <tr>
+                  {columns.map(c => (
+                    <th key={c.label} style={{ textAlign: 'left', padding: '10px 12px', fontSize: 11, fontWeight: 600, color: C.faint, textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: `1px solid ${C.line}`, whiteSpace: 'nowrap', background: C.bgSec }}>
+                      {c.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {pageRows.map((r, i) => (
+                  <tr key={r.id || i}>
+                    {columns.map(c => {
+                      const v = c.get(r)
+                      return (
+                        <td key={c.label} style={{ padding: '9px 12px', borderBottom: `1px solid ${C.rowLine || C.line}`, color: C.body, ...(c.wrap ? { minWidth: 240, maxWidth: 420 } : { whiteSpace: 'nowrap' }) }}>
+                          {v == null || v === '' ? '—' : c.date ? formatDate(v) : v}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+      </div>
+
+      {!loading && filtered.length > REPORT_PAGE_SIZE && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, marginTop: 10, fontSize: 12, color: C.sub }}>
+          <span>
+            {safePage * REPORT_PAGE_SIZE + 1}–{Math.min((safePage + 1) * REPORT_PAGE_SIZE, filtered.length)} of {filtered.length}
+          </span>
+          <Btn sm disabled={safePage === 0} onClick={() => setPage(safePage - 1)}>‹ Prev</Btn>
+          <Btn sm disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)}>Next ›</Btn>
+        </div>
+      )}
     </div>
   )
 }
@@ -1282,7 +1507,7 @@ export default function AdminPanel({ onToast }) {
         { id: 'employees', label: 'Employees' },
         { id: 'holidays', label: 'Holidays' },
         { id: 'audit', label: 'Audit log' },
-        { id: 'export', label: 'Export' },
+        { id: 'export', label: 'Reports' },
       ]}
       value={section}
       onChange={setSection}

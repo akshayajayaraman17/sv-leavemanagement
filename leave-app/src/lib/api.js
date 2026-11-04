@@ -216,13 +216,14 @@ export const fetchMyLeaves = async (employeeId) => {
 }
 
 // Admin-only (relies on the leave_requests_read RLS policy's is_admin() clause)
-export const fetchAllLeaveRequests = async ({ from, to } = {}) => {
+export const fetchAllLeaveRequests = async ({ from, to, employeeId } = {}) => {
   let query = supabase
     .from('leave_requests')
-    .select('*, employee:employee_id(full_name, employee_code, department)')
+    .select('*, employee:employee_id(full_name, employee_code, department, location)')
     .order('applied_on', { ascending: false })
   if (from) query = query.gte('from_date', from)
   if (to)   query = query.lte('from_date', to)
+  if (employeeId) query = query.eq('employee_id', employeeId)
   const { data, error } = await query
   return { data, error }
 }
@@ -459,13 +460,14 @@ export const fetchAttendanceHistory = async (employeeId, limit = 20) => {
   return { data, error }
 }
 
-export const fetchAllAttendance = async (limit = 100, { from, to } = {}) => {
+export const fetchAllAttendance = async (limit = 100, { from, to, employeeId } = {}) => {
   let query = supabase
     .from('attendance')
-    .select('*, employee:employee_id(full_name, avatar_initials, department)')
+    .select('*, employee:employee_id(full_name, employee_code, avatar_initials, department, location)')
     .order('date', { ascending: false })
   if (from) query = query.gte('date', from)
   if (to)   query = query.lte('date', to)
+  if (employeeId) query = query.eq('employee_id', employeeId)
   const { data, error } = await query.limit(limit)
   return { data, error }
 }
@@ -663,6 +665,20 @@ export const decideTimesheet = async (id, status, rejectReason = null) => {
     .select()
     .single()
   if (!error) notifyDecision('timesheets', id)
+  return { data, error }
+}
+
+// Admin reports: individual timesheet task lines across employees, newest first.
+export const fetchAllTimesheetEntries = async (limit = 1000, { from, to, employeeId } = {}) => {
+  let query = supabase
+    .from('timesheet_entries')
+    .select('*, employee:employee_id(full_name, employee_code, department, location), timesheet:timesheet_id(status, week_start)')
+    .order('date', { ascending: false })
+    .order('created_at', { ascending: false })
+  if (from) query = query.gte('date', from)
+  if (to)   query = query.lte('date', to)
+  if (employeeId) query = query.eq('employee_id', employeeId)
+  const { data, error } = await query.limit(limit)
   return { data, error }
 }
 
