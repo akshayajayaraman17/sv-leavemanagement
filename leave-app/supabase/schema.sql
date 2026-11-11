@@ -863,9 +863,8 @@ begin
   if att.check_out_time is null then
     raise exception 'No check-out record for % — both check-in and check-out are required', new.worked_date;
   end if;
-  if coalesce(att.total_hours, 0) < 8 then
-    raise exception 'Only %h logged on % — a minimum of 8 hours is required',
-      round(coalesce(att.total_hours, 0)::numeric, 1), new.worked_date;
+  if coalesce(att.total_hours, 0) <= 0 then
+    raise exception 'No hours logged on %', new.worked_date;
   end if;
 
   new.worked_hours := att.total_hours;

@@ -540,14 +540,15 @@ export function ApplyCompOff({ employee, onToast }) {
           const hours = r.total_hours || 0
           const validPunches = !!r.check_in_time && !!r.check_out_time && r.status !== 'absent' && r.status !== 'incomplete'
           const already = reqs.some(x => x.worked_date === r.date && x.status !== 'rejected')
-          const eligible = validPunches && hours >= 8 && !already
+          const eligible = validPunches && hours > 0 && !already
           return {
             date: r.date, hours, eligible,
             kind: isHoliday ? holNames[r.date] : dow === 0 ? 'Sunday' : 'Saturday',
             note: already ? 'Already requested'
               : !validPunches ? 'Missing a valid punch — not eligible'
-                : hours < 8 ? 'Under 8h — not eligible'
-                  : 'Punches validated',
+                : hours <= 0 ? 'No hours logged — not eligible'
+                  : hours < 8 ? 'Under 8h — approver will review'
+                    : 'Punches validated',
           }
         })
         .filter(Boolean)
@@ -603,7 +604,6 @@ export function ApplyCompOff({ employee, onToast }) {
     if (manual.date && manual.inT && manual.outT) {
       hrs = Math.round(((new Date(`${manual.date}T${manual.outT}:00`) - new Date(`${manual.date}T${manual.inT}:00`)) / 3600000) * 100) / 100
       if (hrs <= 0) e.mout = 'Must be after check-in'
-      else if (hrs < 8) e.mout = `Only ${hrs.toFixed(1)}h — comp off needs 8h+`
     }
     if (Object.keys(e).length) { setErrs(e); return }
     setManualSubmitting(true)
@@ -648,13 +648,13 @@ export function ApplyCompOff({ employee, onToast }) {
       <div style={{ ...card, padding: '24px 26px' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.muted }}>Eligible days worked</div>
-          <div style={{ fontSize: 11.5, color: '#7b8798' }}>8h+ on a weekend or holiday, with valid punches</div>
+          <div style={{ fontSize: 11.5, color: '#7b8798' }}>Worked on a weekend or holiday, with valid punches</div>
         </div>
 
         <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
           {candidates.length === 0 && (
             <div style={{ fontSize: 12.5, color: C.muted, padding: '18px 0', lineHeight: 1.6 }}>
-              No weekend or holiday work found in the last few months. Check in and out for 8h or more on a Saturday, Sunday, or company holiday and it will show up here.
+              No weekend or holiday work found in the last few months. Check in and out on a Saturday, Sunday, or company holiday and it will show up here.
             </div>
           )}
           {candidates.map(c => {
