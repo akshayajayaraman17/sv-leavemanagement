@@ -539,12 +539,18 @@ export function ApplyCompOff({ employee, onToast }) {
           if (!isWeekend && !isHoliday) return null
           const hours = r.total_hours || 0
           const validPunches = !!r.check_in_time && !!r.check_out_time && r.status !== 'absent' && r.status !== 'incomplete'
-          const already = reqs.some(x => x.worked_date === r.date && x.status !== 'rejected')
-          const eligible = validPunches && hours > 0 && !already
+          const forDay = reqs.filter(x => x.worked_date === r.date)
+          const live = forDay.find(x => x.status !== 'rejected')
+          const rejected = !live && forDay.length > 0
+          const eligible = validPunches && hours > 0 && !live
           return {
             date: r.date, hours, eligible,
             kind: isHoliday ? holNames[r.date] : dow === 0 ? 'Sunday' : 'Saturday',
-            note: already ? 'Already requested'
+            tone: live?.status === 'approved' ? 'approved' : live ? 'pending' : rejected ? 'rejected' : null,
+            note: live?.status === 'approved' ? 'Approved'
+              : live ? 'Pending approval'
+              : rejected && eligible ? 'Rejected — you can apply again'
+              : rejected ? 'Rejected'
               : !validPunches ? 'Missing a valid punch — not eligible'
                 : hours <= 0 ? 'No hours logged — not eligible'
                   : hours < 8 ? 'Under 8h — approver will review'
@@ -672,7 +678,7 @@ export function ApplyCompOff({ employee, onToast }) {
                   <div style={{ fontSize: 13.5, fontWeight: 500, color: c.eligible ? C.ink : C.faint }}>{fmtPill(c.date)}</div>
                   <div style={{ fontSize: 11, color: C.muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.kind}</div>
                 </div>
-                <div style={{ fontSize: 12, color: c.eligible ? '#2a5c8a' : '#c2882a' }}>{c.note}</div>
+                <div style={{ fontSize: 12, color: c.tone === 'approved' ? '#1f7350' : c.tone === 'rejected' ? '#c9564a' : c.tone === 'pending' || !c.eligible ? '#c2882a' : '#2a5c8a' }}>{c.note}</div>
                 <div style={{ textAlign: 'right', fontFamily: C.mono, fontSize: 13, color: c.eligible ? C.ink : C.faint }}>{c.hours.toFixed(1)} h</div>
               </div>
             )
