@@ -2,7 +2,8 @@
 // Sends a notification email via Resend for a leave/comp-off/timesheet/
 // regularization request. Two events:
 //   - "decision"  (default): request was approved/rejected → emails the requester
-//   - "submitted"          : request was just applied for  → emails the approver
+//   - "submitted"          : request was just applied for  → emails every
+//                            approver in the requester's approver chain
 //
 // Security note: the client only ever sends { table, recordId, event }. The
 // email's subject/body are always built server-side from the record the
@@ -11,7 +12,8 @@
 // cannot inject arbitrary email content or target an arbitrary recipient;
 // they can only trigger a notification for a record they already had
 // permission to act on, and the recipient is always derived from the record
-// (the requester for "decision", the assigned approver for "submitted").
+// (the requester for "decision", the requester's configured approvers for
+// "submitted").
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -37,7 +39,7 @@ const TABLE_CONFIG: Record<TableKey, {
 }> = {
   leave_requests: {
     label: "Leave request",
-    select: "id, leave_type, from_date, to_date, days, status, reject_reason, employee:employee_id(full_name, email), approver:approver_id(full_name, email)",
+    select: "id, employee_id, leave_type, from_date, to_date, days, status, reject_reason, employee:employee_id(full_name, email), approver:approver_id(full_name, email)",
     pendingStatus: "pending",
     decision: {
       subject: (r) => `Your ${r.leave_type} leave request was ${r.status}`,
@@ -52,7 +54,7 @@ const TABLE_CONFIG: Record<TableKey, {
   },
   comp_off_requests: {
     label: "Comp-off request",
-    select: "id, worked_date, earned_days, status, employee:employee_id(full_name, email), approver:approver_id(full_name, email)",
+    select: "id, employee_id, worked_date, earned_days, status, employee:employee_id(full_name, email), approver:approver_id(full_name, email)",
     pendingStatus: "pending",
     decision: {
       subject: (r) => `Your comp-off request was ${r.status}`,
@@ -66,7 +68,7 @@ const TABLE_CONFIG: Record<TableKey, {
   },
   timesheets: {
     label: "Timesheet",
-    select: "id, week_start, total_hours, status, reject_reason, employee:employee_id(full_name, email), approver:approver_id(full_name, email)",
+    select: "id, employee_id, week_start, total_hours, status, reject_reason, employee:employee_id(full_name, email), approver:approver_id(full_name, email)",
     pendingStatus: "submitted",
     decision: {
       subject: (r) => `Your timesheet for the week of ${r.week_start} was ${r.status}`,
@@ -81,7 +83,7 @@ const TABLE_CONFIG: Record<TableKey, {
   },
   attendance_regularizations: {
     label: "Attendance regularization",
-    select: "id, status, reject_reason, employee:employee_id(full_name, email), approver:approver_id(full_name, email), attendance:attendance_id(date)",
+    select: "id, employee_id, status, reject_reason, employee:employee_id(full_name, email), approver:approver_id(full_name, email), attendance:attendance_id(date)",
     pendingStatus: "pending",
     decision: {
       subject: (r) => `Your attendance regularization was ${r.status}`,
@@ -96,7 +98,7 @@ const TABLE_CONFIG: Record<TableKey, {
   },
   permission_requests: {
     label: "Permission request",
-    select: "id, request_date, from_time, to_time, duration_minutes, status, reject_reason, employee:employee_id(full_name, email), approver:approver_id(full_name, email)",
+    select: "id, employee_id, request_date, from_time, to_time, duration_minutes, status, reject_reason, employee:employee_id(full_name, email), approver:approver_id(full_name, email)",
     pendingStatus: "pending",
     decision: {
       subject: (r) => `Your permission request was ${r.status}`,
@@ -163,8 +165,36 @@ serve(async (req) => {
       }
     }
 
-    const recipient = event === "decision" ? row.employee : row.approver;
-    if (!recipient?.email) {
+    // "decision" → the requester. "submitted" → every active approver in the
+    // requester's approver_config chain (plus the assigned approver_id, in
+    // case it came from the manager/admin fallback), deduped by email and
+    // never the requester themselves. approver_config and employees are
+    // readable by every signed-in user, so the caller's token suffices.
+    let recipients: { full_name?: string; email?: string }[] = [];
+    if (event === "decision") {
+      recipients = [row.employee];
+    } else {
+      const { data: chain } = await userClient
+        .from("approver_config")
+        .select("priority, approver:approver_id(full_name, email, is_active)")
+        .eq("employee_id", row.employee_id)
+        .order("priority", { ascending: true });
+      recipients = [
+        row.approver,
+        ...(chain || []).filter((c: any) => c.approver?.is_active).map((c: any) => c.approver),
+      ];
+    }
+    const seen = new Set<string>();
+    const requesterEmail = row.employee?.email?.toLowerCase();
+    recipients = recipients.filter((r) => {
+      const e = r?.email?.toLowerCase();
+      if (!e || seen.has(e)) return false;
+      if (event === "submitted" && e === requesterEmail) return false;
+      seen.add(e);
+      return true;
+    });
+
+    if (recipients.length === 0) {
       // No approver assigned, or requester has no email on file. Not an error —
       // the DB write already succeeded and this is a best-effort side effect.
       return new Response(JSON.stringify({ skipped: true, reason: "no recipient email" }), {
@@ -174,31 +204,35 @@ serve(async (req) => {
 
     const { subject, body } = config[event];
     const viewLink = APP_URL ? `<p style="margin-top:20px"><a href="${APP_URL}" style="color:#1D9E75">View in Leave Manager →</a></p>` : "";
-    const html = `
-      <div style="font-family:'DM Sans',Arial,sans-serif;max-width:480px;margin:0 auto;color:#1a1a1a">
-        <p>Hi ${recipient.full_name?.split(" ")[0] || ""},</p>
-        <p>${body(row)}</p>
-        ${viewLink}
-        <p style="margin-top:28px;font-size:12px;color:#9e9d98">${config.label} · Leave Manager</p>
-      </div>`;
 
-    const resendRes = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: NOTIFY_FROM,
-        to: recipient.email,
-        subject: subject(row),
-        html,
-      }),
-    });
+    const failures: string[] = [];
+    for (const recipient of recipients) {
+      const html = `
+        <div style="font-family:'DM Sans',Arial,sans-serif;max-width:480px;margin:0 auto;color:#1a1a1a">
+          <p>Hi ${recipient.full_name?.split(" ")[0] || ""},</p>
+          <p>${body(row)}</p>
+          ${viewLink}
+          <p style="margin-top:28px;font-size:12px;color:#9e9d98">${config.label} · Leave Manager</p>
+        </div>`;
 
-    if (!resendRes.ok) {
-      const errText = await resendRes.text();
-      return new Response(JSON.stringify({ error: `Resend API error: ${errText}` }), { status: 502, headers: corsHeaders });
+      const resendRes = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${RESEND_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: NOTIFY_FROM,
+          to: recipient.email,
+          subject: subject(row),
+          html,
+        }),
+      });
+      if (!resendRes.ok) failures.push(await resendRes.text());
+    }
+
+    if (failures.length === recipients.length) {
+      return new Response(JSON.stringify({ error: `Resend API error: ${failures[0]}` }), { status: 502, headers: corsHeaders });
     }
 
     return new Response(JSON.stringify({ sent: true }), {
