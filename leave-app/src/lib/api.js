@@ -367,6 +367,56 @@ export const cancelPermission = async (id) => {
   return { data, error }
 }
 
+// Admin report: every permission request, optionally narrowed by request date / employee.
+export const fetchAllPermissionRequests = async ({ from, to, employeeId } = {}) => {
+  let query = supabase
+    .from('permission_requests')
+    .select('*, employee:employee_id(id, full_name, employee_code, department, location)')
+    .order('request_date', { ascending: false })
+  if (from) query = query.gte('request_date', from)
+  if (to)   query = query.lte('request_date', to)
+  if (employeeId) query = query.eq('employee_id', employeeId)
+  const { data, error } = await query
+  return { data, error }
+}
+
+// PostgREST caps a response at 1000 rows, so page through larger result sets.
+async function fetchAllPages(buildQuery, pageSize = 1000) {
+  const out = []
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await buildQuery().range(offset, offset + pageSize - 1)
+    if (error) return { data: out, error }
+    out.push(...(data || []))
+    if (!data || data.length < pageSize) return { data: out, error: null }
+  }
+}
+
+// Everything computeCompensation() needs for the weeks spanning [from, to]:
+// attendance hours, approved leave overlapping the range, and holidays.
+// employeeIds narrows attendance/leave to those employees (omit for all —
+// RLS still limits a non-admin to what they're allowed to see).
+export const fetchCompensationInputs = async ({ from, to, employeeIds } = {}) => {
+  const scope = (q) => employeeIds?.length ? q.in('employee_id', employeeIds) : q
+  const [att, lv, hol] = await Promise.all([
+    fetchAllPages(() => scope(supabase.from('attendance')
+      .select('employee_id, date, total_hours')
+      .gte('date', from).lte('date', to)
+      .order('date'))),
+    fetchAllPages(() => scope(supabase.from('leave_requests')
+      .select('employee_id, from_date, to_date, days')
+      .eq('status', 'approved')
+      .lte('from_date', to).gte('to_date', from)
+      .order('from_date'))),
+    supabase.from('company_holidays')
+      .select('holiday_date, region')
+      .gte('holiday_date', from).lte('holiday_date', to),
+  ])
+  return {
+    attendance: att.data || [], leaves: lv.data || [], holidays: hol.data || [],
+    error: att.error || lv.error || hol.error,
+  }
+}
+
 // ─── Comp Off Requests ────────────────────────────────────────────────────────
 export const fetchMyCompRequests = async (employeeId) => {
   const { data, error } = await supabase

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import {
   fetchMyLeaves, fetchMyCompRequests, fetchMyPermissions,
-  getMedicalCertificateUrl, cancelLeave, cancelPermission,
+  getMedicalCertificateUrl, cancelLeave, cancelPermission, fetchCompensationInputs,
 } from '../lib/api'
-import { formatDuration } from '../lib/permission'
+import { formatDuration, compensationRange, compensationById, compensationText } from '../lib/permission'
 import { Badge, Btn, C, Confirm, Empty, Mono, Spinner, Tabs, card, formatDate, inputStyle } from './UI'
 import { todayStr } from '../lib/dates'
 
@@ -22,12 +22,22 @@ export default function MyLeaves({ employee, onToast }) {
   const [cancelling, setCancelling] = useState(false)
   const [yearFilter, setYearFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [compensation, setCompensation] = useState({})
 
   const load = () => {
     setLoading(true)
     Promise.all([fetchMyLeaves(employee.id), fetchMyCompRequests(employee.id), fetchMyPermissions(employee.id)]).then(([l, c, p]) => {
       if (l.error || c.error || p.error) onToast?.((l.error || c.error || p.error).message || 'Failed to load some data', 'error')
       setLeaves(l.data || []); setComps(c.data || []); setPermissions(p.data || [])
+      // Approved permissions must be made up in the same week — load that
+      // week's attendance/leave/holidays to show where each one stands.
+      const range = compensationRange(p.data || [])
+      if (range) {
+        fetchCompensationInputs({ ...range, employeeIds: [employee.id] }).then(inputs => {
+          if (inputs.error) { onToast?.('Failed to load permission compensation', 'error'); return }
+          setCompensation(compensationById(p.data, inputs, todayStr(), () => employee.location))
+        })
+      }
     }).finally(() => setLoading(false))
   }
   useEffect(load, [employee.id])
@@ -144,6 +154,7 @@ export default function MyLeaves({ employee, onToast }) {
               {fmtTime(p.from_time)} – {fmtTime(p.to_time)} · <Mono>{formatDuration(p.duration_minutes)}</Mono>
             </div>
             <div style={{ fontSize: 12, color: C.muted }}>{p.reason}</div>
+            <CompensationNote c={compensation[p.id]} />
             {p.reject_reason && (
               <div style={{ fontSize: 11.5, color: C.red, marginTop: 6, background: C.redBg, border: `1px solid ${C.redLine}`, padding: '5px 8px', borderRadius: 6 }}>Rejection reason: {p.reject_reason}</div>
             )}
@@ -153,6 +164,25 @@ export default function MyLeaves({ employee, onToast }) {
             </div>
           </div>
         )))}
+    </div>
+  )
+}
+
+const COMP_TONE = {
+  compensated: { fg: '#1f7350', bg: C.greenBg, line: '#bfe0cf' },
+  in_progress: { fg: '#2a5c8a', bg: '#eaf2fb', line: '#cfe0f1' },
+  short:       { fg: C.red,     bg: C.redBg,   line: C.redLine },
+}
+
+// Where an approved permission stands against its same-week make-up rule.
+function CompensationNote({ c }) {
+  if (!c) return null
+  const t = COMP_TONE[c.status]
+  return (
+    <div title={`Week ${formatDate(c.weekStart)} – ${formatDate(c.weekEnd)}: worked ${c.worked} h of ${c.target} h`}
+      style={{ fontSize: 11.5, color: t.fg, marginTop: 6, background: t.bg, border: `1px solid ${t.line}`, padding: '5px 8px', borderRadius: 6 }}>
+      {compensationText(c, formatDate)}
+      {c.status !== 'compensated' && <span style={{ color: C.sub }}> · worked {c.worked} of {c.target} h this week</span>}
     </div>
   )
 }

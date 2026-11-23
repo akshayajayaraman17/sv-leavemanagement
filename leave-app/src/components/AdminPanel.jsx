@@ -5,9 +5,11 @@ import {
   fetchLeaveTypes, fetchLeaveAdjustments, upsertLeaveAdjustment, grantCompOff, adminAddLeave,
   fetchLeaveBalance, fetchHolidays, createHoliday, deleteHoliday, fetchAuditLog,
   fetchAllLeaveRequests, fetchAllAttendance, fetchAllTimesheetEntries,
+  fetchAllPermissionRequests, fetchCompensationInputs,
   fetchMyLeaves, fetchTimesheetHistory, fetchTimesheetEntries, fetchAttendanceHistory, fetchPunches, getMedicalCertificateUrl,
 } from '../lib/api'
 import { workingDays } from '../lib/leaveDays'
+import { formatDuration, compensationRange, compensationById, COMPENSATION_LABEL } from '../lib/permission'
 import { rowsToCsv, downloadCsv, parseCsv } from '../lib/csv'
 import { printPayslip } from '../lib/payslip'
 import { generateEmpCode } from '../lib/employeeCode'
@@ -1139,8 +1141,50 @@ function ReportFilter({ label, children }) {
   )
 }
 
+// One get_leave_balance call per employee, a few at a time so a large company
+// doesn't fire hundreds of requests at once. Rows are shaped like the other
+// reports ({ employee, ... }) so the shared filters work unchanged.
+async function fetchAllBalances(employees, concurrency = 8) {
+  const out = new Array(employees.length)
+  let firstError = null
+  let next = 0
+  const worker = async () => {
+    while (next < employees.length) {
+      const i = next++
+      const emp = employees[i]
+      const { data, error } = await fetchLeaveBalance(emp.id)
+      if (error && !firstError) firstError = error
+      out[i] = {
+        id: emp.id,
+        employee: emp,
+        balances: Object.fromEntries((data || []).map(b => [b.type_code, b])),
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, employees.length) }, worker))
+  return { data: out, error: firstError }
+}
+
+// Permission requests with their same-week compensation attached as r.comp
+// (approved ones only — pending/rejected/cancelled have nothing to make up).
+async function fetchPermissionsWithCompensation(filters) {
+  const { data, error } = await fetchAllPermissionRequests(filters)
+  if (error || !data?.length) return { data: data || [], error }
+  const range = compensationRange(data)
+  if (!range) return { data, error: null }
+  // Narrow by employee when the set is small; for a company-wide report a huge
+  // IN (...) list would overflow the request URL, and admins can read all rows anyway.
+  const ids = [...new Set(data.filter(p => p.status === 'approved').map(p => p.employee_id))]
+  const inputs = await fetchCompensationInputs({ ...range, employeeIds: ids.length <= 50 ? ids : undefined })
+  const locationOf = Object.fromEntries(data.map(p => [p.employee_id, p.employee?.location]))
+  const comp = compensationById(data, inputs, todayStr(), id => locationOf[id])
+  return { data: data.map(p => ({ ...p, comp: comp[p.id] })), error: inputs.error }
+}
+
+const num = (v) => v == null ? '' : Number(v) % 1 === 0 ? String(Number(v)) : Number(v).toFixed(1)
+
 function ExportPanel({ employees, onToast }) {
-  const [report, setReport]     = useState('employees')   // 'employees' | 'leave' | 'attendance' | 'timesheets'
+  const [report, setReport]     = useState('employees')   // 'employees' | 'balance' | 'leave' | 'attendance' | 'timesheets'
   const [from, setFrom]         = useState('')
   const [to, setTo]             = useState('')
   const [employeeId, setEmpId]  = useState('')
@@ -1149,6 +1193,7 @@ function ExportPanel({ employees, onToast }) {
   const [status, setStatus]     = useState('')
   const [role, setRole]         = useState('')
   const [leaveType, setLeaveType] = useState('')
+  const [compStatus, setCompStatus] = useState('')
   const [search, setSearch]     = useState('')
   const [page, setPage]         = useState(0)
   const [rows, setRows]         = useState([])
@@ -1164,22 +1209,24 @@ function ExportPanel({ employees, onToast }) {
 
   // Switching report clears report-specific filters (status values differ per report).
   const switchReport = (id) => {
-    setReport(id); setStatus(''); setRole(''); setLeaveType(''); setPage(0)
+    setReport(id); setStatus(''); setRole(''); setLeaveType(''); setCompStatus(''); setPage(0)
   }
 
   const resetFilters = () => {
     setFrom(''); setTo(''); setEmpId(''); setDept(''); setLocation('')
-    setStatus(''); setRole(''); setLeaveType(''); setSearch(''); setPage(0)
+    setStatus(''); setRole(''); setLeaveType(''); setCompStatus(''); setSearch(''); setPage(0)
   }
 
   // Leave and attendance come from the server; date range and employee are
   // applied there so the attendance row cap covers the right records.
   useEffect(() => {
-    if (report === 'employees') return
+    if (report === 'employees' || report === 'balance') return
     let cancelled = false
     setLoading(true)
     const req = report === 'leave'
       ? fetchAllLeaveRequests({ from, to, employeeId })
+      : report === 'permissions'
+        ? fetchPermissionsWithCompensation({ from, to, employeeId })
       : report === 'timesheets'
         ? fetchAllTimesheetEntries(ROW_CAP, { from, to, employeeId })
         : fetchAllAttendance(ROW_CAP, { from, to, employeeId })
@@ -1190,6 +1237,20 @@ function ExportPanel({ employees, onToast }) {
     }).finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [report, from, to, employeeId])
+
+  // Balances are "as of today" (current leave year), so date filters don't
+  // apply — load every employee's balance once and filter client-side.
+  useEffect(() => {
+    if (report !== 'balance') return
+    let cancelled = false
+    setLoading(true)
+    fetchAllBalances(employees).then(({ data, error }) => {
+      if (cancelled) return
+      if (error) onToast(`Failed to load some balances: ${error.message}`, 'error')
+      setRows(data)
+    }).finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [report, employees])
 
   useEffect(() => { setPage(0) }, [from, to, employeeId, dept, location, status, role, leaveType, search])
 
@@ -1214,6 +1275,19 @@ function ExportPanel({ employees, onToast }) {
     { label: 'Status',        get: r => r.is_active === false ? 'Former' : 'Active' },
     { label: 'Exit Date',     get: r => r.exit_date, date: true },
     { label: 'Exit Reason',   get: r => r.exit_reason },
+  ] : report === 'balance' ? [
+    { label: 'Employee Code', get: r => r.employee?.employee_code },
+    { label: 'Employee',      get: r => r.employee?.full_name },
+    { label: 'Department',    get: r => r.employee?.department },
+    // Table shows one "remaining / total" cell per leave type; the CSV gets
+    // separate Total / Used / Remaining columns (see csvOnly / tableOnly).
+    ...leaveTypes.filter(t => !leaveType || t.code === leaveType).flatMap(t => [
+      { label: t.label, tableOnly: true, balance: t.code,
+        get: r => { const b = r.balances?.[t.code]; return b ? `${num(b.remaining)} / ${num(b.total)}` : '' } },
+      { label: `${t.label} Total`,     csvOnly: true, get: r => num(r.balances?.[t.code]?.total) },
+      { label: `${t.label} Used`,      csvOnly: true, get: r => num(r.balances?.[t.code]?.used) },
+      { label: `${t.label} Remaining`, csvOnly: true, get: r => num(r.balances?.[t.code]?.remaining) },
+    ]),
   ] : report === 'leave' ? [
     { label: 'Employee Code', get: r => r.employee?.employee_code },
     { label: 'Employee',      get: r => r.employee?.full_name },
@@ -1225,6 +1299,20 @@ function ExportPanel({ employees, onToast }) {
     { label: 'Status',        get: r => cap(r.status) },
     { label: 'Applied On',    get: r => r.applied_on, date: true },
     { label: 'Decided On',    get: r => r.decided_on, date: true },
+  ] : report === 'permissions' ? [
+    { label: 'Employee Code', get: r => r.employee?.employee_code },
+    { label: 'Employee',      get: r => r.employee?.full_name },
+    { label: 'Department',    get: r => r.employee?.department },
+    { label: 'Date',          get: r => r.request_date, date: true },
+    { label: 'From',          get: r => r.from_time?.slice(0, 5) },
+    { label: 'To',            get: r => r.to_time?.slice(0, 5) },
+    { label: 'Duration',      get: r => formatDuration(r.duration_minutes) },
+    { label: 'Reason',        get: r => r.reason, wrap: true },
+    { label: 'Status',        get: r => cap(r.status) },
+    { label: 'Compensation',  get: r => r.comp ? COMPENSATION_LABEL[r.comp.status] : '', comp: true },
+    { label: 'Week Hours',    get: r => r.comp ? `${r.comp.worked} / ${r.comp.target}` : '' },
+    { label: 'Shortfall (h)', get: r => r.comp ? r.comp.shortfall : '' },
+    { label: 'Week Of',       get: r => r.comp?.weekStart, date: true },
   ] : report === 'timesheets' ? [
     { label: 'Employee Code', get: r => r.employee?.employee_code },
     { label: 'Employee',      get: r => r.employee?.full_name },
@@ -1261,15 +1349,25 @@ function ExportPanel({ employees, onToast }) {
         (!q || [e.full_name, e.email, e.employee_code, e.designation].some(v => v?.toLowerCase().includes(q)))
       )
     }
+    if (report === 'balance') {
+      return rows.filter(r => r && r.employee &&
+        (!employeeId || r.employee.id === employeeId) &&
+        (!dept || r.employee.department === dept) &&
+        (!location || r.employee.location === location) &&
+        (!status || (status === 'former' ? r.employee.is_active === false : r.employee.is_active !== false)) &&
+        (!q || [r.employee.full_name, r.employee.email, r.employee.employee_code].some(v => v?.toLowerCase().includes(q)))
+      )
+    }
     return rows.filter(r =>
       (!dept || r.employee?.department === dept) &&
       (!location || r.employee?.location === location) &&
       (!status || (report === 'timesheets' ? r.timesheet?.status : r.status) === status) &&
       (report !== 'leave' || !leaveType || r.leave_type === leaveType) &&
+      (report !== 'permissions' || !compStatus || r.comp?.status === compStatus) &&
       (!q || [r.employee?.full_name, r.employee?.employee_code, r.project, r.jira_issue_key, r.task_description]
         .some(v => v?.toLowerCase().includes(q)))
     )
-  }, [report, employees, rows, employeeId, dept, location, role, status, leaveType, from, to, search])
+  }, [report, employees, rows, employeeId, dept, location, role, status, leaveType, compStatus, from, to, search])
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / REPORT_PAGE_SIZE))
   const safePage  = Math.min(page, pageCount - 1)
@@ -1277,24 +1375,28 @@ function ExportPanel({ employees, onToast }) {
 
   const exportCsv = () => {
     if (filtered.length === 0) { onToast('Nothing to export — no rows match the filters', 'error'); return }
-    const csvCols = columns.map((c, i) => ({ key: String(i), label: c.label }))
-    const csvRows = filtered.map(r => Object.fromEntries(columns.map((c, i) => [String(i), c.get(r) ?? ''])))
-    const base = report === 'employees' ? 'employees' : report === 'leave' ? 'leave-requests' : report
-    const range = from || to ? `_${from || 'start'}_to_${to || todayStr()}` : ''
+    const exportColumns = columns.filter(c => !c.tableOnly)
+    const csvCols = exportColumns.map((c, i) => ({ key: String(i), label: c.label }))
+    const csvRows = filtered.map(r => Object.fromEntries(exportColumns.map((c, i) => [String(i), c.get(r) ?? ''])))
+    const base = report === 'employees' ? 'employees' : report === 'leave' ? 'leave-requests' : report === 'balance' ? 'leave-balance' : report === 'permissions' ? 'permission-requests' : report
+    const range = report === 'balance' ? `_as_of_${todayStr()}`
+      : from || to ? `_${from || 'start'}_to_${to || todayStr()}` : ''
     downloadCsv(`${base}${range}.csv`, rowsToCsv(csvRows, csvCols))
     onToast(`Exported ${filtered.length} row${filtered.length !== 1 ? 's' : ''}`)
   }
 
-  const statusOptions = report === 'employees'
+  const tableColumns = columns.filter(c => !c.csvOnly)
+
+  const statusOptions = report === 'employees' || report === 'balance'
     ? [['active', 'Active'], ['former', 'Former']]
-    : report === 'leave'
+    : report === 'leave' || report === 'permissions'
       ? [['pending', 'Pending'], ['approved', 'Approved'], ['rejected', 'Rejected'], ['cancelled', 'Cancelled']]
       : report === 'timesheets'
         ? [['draft', 'Draft'], ['submitted', 'Submitted'], ['approved', 'Approved'], ['rejected', 'Rejected']]
         : [['present', 'Present'], ['incomplete', 'Incomplete'], ['absent', 'Absent']]
 
   const sel = { ...inputStyle(), padding: '6px 8px', fontSize: 12 }
-  const anyFilter = from || to || employeeId || dept || location || status || role || leaveType || search
+  const anyFilter = from || to || employeeId || dept || location || status || role || leaveType || compStatus || search
   const capped = (report === 'attendance' || report === 'timesheets') && rows.length >= ROW_CAP
   const totalHours = report === 'timesheets'
     ? filtered.reduce((sum, r) => sum + (Number(r.hours) || 0), 0)
@@ -1305,7 +1407,9 @@ function ExportPanel({ employees, onToast }) {
       <Segmented
         items={[
           { id: 'employees',  label: 'Employees' },
+          { id: 'balance',    label: 'Leave balance' },
           { id: 'leave',      label: 'Leave requests' },
+          { id: 'permissions', label: 'Permissions' },
           { id: 'attendance', label: 'Attendance' },
           { id: 'timesheets', label: 'Timesheets' },
         ]}
@@ -1316,12 +1420,14 @@ function ExportPanel({ employees, onToast }) {
 
       <div style={{ ...card, marginBottom: 12 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 10 }}>
-          <ReportFilter label={report === 'employees' ? 'Joined from' : 'From date'}>
-            <input type="date" value={from} max={to || undefined} onChange={e => setFrom(e.target.value)} style={sel} />
-          </ReportFilter>
-          <ReportFilter label={report === 'employees' ? 'Joined to' : 'To date'}>
-            <input type="date" value={to} min={from || undefined} onChange={e => setTo(e.target.value)} style={sel} />
-          </ReportFilter>
+          {report !== 'balance' && (<>
+            <ReportFilter label={report === 'employees' ? 'Joined from' : 'From date'}>
+              <input type="date" value={from} max={to || undefined} onChange={e => setFrom(e.target.value)} style={sel} />
+            </ReportFilter>
+            <ReportFilter label={report === 'employees' ? 'Joined to' : 'To date'}>
+              <input type="date" value={to} min={from || undefined} onChange={e => setTo(e.target.value)} style={sel} />
+            </ReportFilter>
+          </>)}
           <ReportFilter label="Employee">
             <select value={employeeId} onChange={e => setEmpId(e.target.value)} style={sel}>
               <option value="">All employees</option>
@@ -1356,7 +1462,15 @@ function ExportPanel({ employees, onToast }) {
               </select>
             </ReportFilter>
           )}
-          {report === 'leave' && (
+          {report === 'permissions' && (
+            <ReportFilter label="Compensation">
+              <select value={compStatus} onChange={e => setCompStatus(e.target.value)} style={sel}>
+                <option value="">Any</option>
+                {Object.entries(COMPENSATION_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </ReportFilter>
+          )}
+          {(report === 'leave' || report === 'balance') && (
             <ReportFilter label="Leave type">
               <select value={leaveType} onChange={e => setLeaveType(e.target.value)} style={sel}>
                 <option value="">All leave types</option>
@@ -1383,6 +1497,11 @@ function ExportPanel({ employees, onToast }) {
             Export CSV{filtered.length ? ` (${filtered.length})` : ''}
           </Btn>
         </div>
+        {report === 'balance' && (
+          <div style={{ fontSize: 11.5, color: C.faint, marginTop: 8 }}>
+            Each cell shows <strong>remaining / total</strong> days for {new Date().getFullYear()}, counting approved leave only. Hover a cell for days used. The CSV has separate Total, Used and Remaining columns.
+          </div>
+        )}
         {capped && (
           <div style={{ fontSize: 11.5, color: '#8a6a22', marginTop: 8 }}>
             Showing the most recent {ROW_CAP.toLocaleString()} {report === 'timesheets' ? 'timesheet entries' : 'attendance records'}. Narrow the date range or pick an employee to include older ones.
@@ -1397,7 +1516,7 @@ function ExportPanel({ employees, onToast }) {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
               <thead>
                 <tr>
-                  {columns.map(c => (
+                  {tableColumns.map(c => (
                     <th key={c.label} style={{ textAlign: 'left', padding: '10px 12px', fontSize: 11, fontWeight: 600, color: C.faint, textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: `1px solid ${C.line}`, whiteSpace: 'nowrap', background: C.bgSec }}>
                       {c.label}
                     </th>
@@ -1407,11 +1526,22 @@ function ExportPanel({ employees, onToast }) {
               <tbody>
                 {pageRows.map((r, i) => (
                   <tr key={r.id || i}>
-                    {columns.map(c => {
+                    {tableColumns.map(c => {
                       const v = c.get(r)
+                      const b = c.balance ? r.balances?.[c.balance] : null
                       return (
                         <td key={c.label} style={{ padding: '9px 12px', borderBottom: `1px solid ${C.rowLine || C.line}`, color: C.body, ...(c.wrap ? { minWidth: 240, maxWidth: 420 } : { whiteSpace: 'nowrap' }) }}>
-                          {v == null || v === '' ? '—' : c.date ? formatDate(v) : v}
+                          {c.comp && r.comp ? (
+                            <span title={`Week ${formatDate(r.comp.weekStart)} – ${formatDate(r.comp.weekEnd)}: worked ${r.comp.worked} of ${r.comp.target} h`}
+                              style={{ fontWeight: 600, color: r.comp.status === 'compensated' ? '#1f7350' : r.comp.status === 'short' ? C.red : '#2a5c8a' }}>
+                              {v}
+                            </span>
+                          ) : b ? (
+                            <span title={`Used ${num(b.used)} of ${num(b.total)}`}>
+                              <strong style={{ color: Number(b.remaining) <= 0 ? C.red : C.navy }}>{num(b.remaining)}</strong>
+                              <span style={{ color: C.faint }}> / {num(b.total)}</span>
+                            </span>
+                          ) : v == null || v === '' ? '—' : c.date ? formatDate(v) : v}
                         </td>
                       )
                     })}

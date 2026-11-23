@@ -5,7 +5,7 @@ import {
   fetchAttendanceHistory, fetchAttendanceForDate, checkIn, fetchPermissionUsageThisMonth,
 } from '../lib/api'
 import { workingDays } from '../lib/leaveDays'
-import { durationMinutes, formatDuration, MAX_PERMISSIONS_PER_MONTH, MAX_PERMISSION_MINUTES, validatePermission } from '../lib/permission'
+import { durationMinutes, formatDuration, MAX_PERMISSIONS_PER_MONTH, MAX_PERMISSION_MINUTES, validatePermission, weekBounds } from '../lib/permission'
 import { Btn, C, Field, Mono, Segmented, Spinner, SELF_REPORTED_TAG, card, formatDate, inputStyle } from './UI'
 import { todayStr, monthBounds } from '../lib/dates'
 
@@ -449,7 +449,13 @@ export function ApplyPermission({ employee, onToast, onGoToHalfDayLeave }) {
           </Field>
         </div>
         <div style={{ fontSize: 11, color: C.muted, marginTop: -6, marginBottom: 16 }}>
-          ⓘ Maximum permission duration: 2 hours
+          ⓘ Maximum permission duration: 2 hours · {MAX_PERMISSIONS_PER_MONTH} permissions per month
+        </div>
+        <div style={{ marginTop: -6, marginBottom: 16, padding: '10px 12px', borderRadius: 8, background: '#eaf2fb', border: '1px solid #cfe0f1', fontSize: 12, color: '#2a5c8a', lineHeight: 1.55 }}>
+          Permission hours must be made up in the same week (Mon–Sun). Your attendance for
+          {form.date ? <> the week of <strong>{formatDate(weekBounds(form.date).start)}</strong></> : ' that week'} still
+          needs to reach the full weekly hours (8 h per working day), so work the extra time on other days
+          {form.date ? <> by <strong>{formatDate(weekBounds(form.date).end)}</strong></> : ''}.
         </div>
 
         <Field label="Reason" error={errs.reason}>
@@ -476,6 +482,7 @@ export function ApplyPermission({ employee, onToast, onGoToHalfDayLeave }) {
             ['From time', form.fromTime || '—'],
             ['To time', form.toTime || '—'],
             ['Duration', mins > 0 ? formatDuration(mins) : '—'],
+            ['Make up by', form.date ? formatDate(weekBounds(form.date).end) : '—'],
             ['Reason', form.reason.trim() || '—'],
             ['Approver', approver?.full_name || '—'],
           ].map(([k, v]) => (
